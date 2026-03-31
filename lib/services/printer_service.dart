@@ -385,28 +385,38 @@ class PrinterService {
               pw.SizedBox(height: 2),
 
               // Items
-              ...order.items.map((item) => pw.Padding(
-                    padding: const pw.EdgeInsets.symmetric(vertical: 1),
-                    child: pw.Row(
-                      children: [
-                        pw.Expanded(
-                            flex: 5,
-                            child: pw.Text(item.name,
-                                style: const pw.TextStyle(fontSize: 7))),
-                        pw.SizedBox(
-                            width: 20,
-                            child: pw.Text('${item.quantity}',
-                                style: const pw.TextStyle(fontSize: 7),
-                                textAlign: pw.TextAlign.center)),
-                        pw.Expanded(
-                            flex: 3,
-                            child: pw.Text(
-                                formatPrice(item.totalPrice),
-                                style: const pw.TextStyle(fontSize: 7),
-                                textAlign: pw.TextAlign.right)),
-                      ],
+              ...order.items.expand((item) => [
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(vertical: 1),
+                      child: pw.Row(
+                        children: [
+                          pw.Expanded(
+                              flex: 5,
+                              child: pw.Text(item.name,
+                                  style: const pw.TextStyle(fontSize: 7))),
+                          pw.SizedBox(
+                              width: 20,
+                              child: pw.Text('${item.quantity}',
+                                  style: const pw.TextStyle(fontSize: 7),
+                                  textAlign: pw.TextAlign.center)),
+                          pw.Expanded(
+                              flex: 3,
+                              child: pw.Text(
+                                  formatPrice(item.totalPrice),
+                                  style: const pw.TextStyle(fontSize: 7),
+                                  textAlign: pw.TextAlign.right)),
+                        ],
+                      ),
                     ),
-                  )),
+                    if (item.note != null && item.note!.isNotEmpty)
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.only(bottom: 2, left: 4),
+                        child: pw.Text('  > ${item.note}',
+                            style: pw.TextStyle(
+                                fontSize: 6,
+                                fontStyle: pw.FontStyle.italic)),
+                      ),
+                  ]),
 
               pw.SizedBox(height: 3),
               pw.Text('--------------------------------',
@@ -457,6 +467,11 @@ class PrinterService {
                       fontSize: 9, fontWeight: pw.FontWeight.bold)),
               pw.Text('We hope to see you again',
                   style: const pw.TextStyle(fontSize: 7)),
+              pw.SizedBox(height: 1),
+              pw.Text('Erbil - Bahirka - Main St.',
+                  style: const pw.TextStyle(fontSize: 6)),
+              pw.Text('0750 348 5909',
+                  style: const pw.TextStyle(fontSize: 6)),
               pw.SizedBox(height: 8),
             ],
           );
@@ -494,30 +509,46 @@ class PrinterService {
               pw.SizedBox(height: 6),
 
               // Items - bigger font, just name + quantity, no background fill
-              ...order.items.map((item) => pw.Container(
-                    margin: const pw.EdgeInsets.only(bottom: 4),
-                    padding: const pw.EdgeInsets.symmetric(
-                        vertical: 3, horizontal: 4),
-                    decoration: pw.BoxDecoration(
-                      border: pw.Border.all(width: 0.8),
+              ...order.items.expand((item) => [
+                    pw.Container(
+                      margin: const pw.EdgeInsets.only(bottom: 1),
+                      padding: const pw.EdgeInsets.symmetric(
+                          vertical: 3, horizontal: 4),
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(width: 0.8),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Row(
+                            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                            children: [
+                              pw.Expanded(
+                                child: pw.Text(item.name,
+                                    style: pw.TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: pw.FontWeight.bold)),
+                              ),
+                              pw.Text('  x${item.quantity}',
+                                  style: pw.TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: pw.FontWeight.bold,
+                                  )),
+                            ],
+                          ),
+                          if (item.note != null && item.note!.isNotEmpty)
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.only(top: 2),
+                              child: pw.Text('> ${item.note}',
+                                  style: pw.TextStyle(
+                                      fontSize: 8,
+                                      fontStyle: pw.FontStyle.italic)),
+                            ),
+                        ],
+                      ),
                     ),
-                    child: pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        pw.Expanded(
-                          child: pw.Text(item.name,
-                              style: pw.TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: pw.FontWeight.bold)),
-                        ),
-                        pw.Text('  x${item.quantity}',
-                            style: pw.TextStyle(
-                              fontSize: 12,
-                              fontWeight: pw.FontWeight.bold,
-                            )),
-                      ],
-                    ),
-                  )),
+                    pw.SizedBox(height: 3),
+                  ]),
 
               pw.SizedBox(height: 4),
               pw.Text('================================',
@@ -578,6 +609,8 @@ class PrinterService {
     bytes.addAll(_text('VIKING BURGER\n'));
     bytes.addAll(_escBoldOff());
     bytes.addAll(_escNormalSize());
+    bytes.addAll(_text('Erbil - Bahirka - Main St.\n'));
+    bytes.addAll(_text('0750 348 5909\n'));
     bytes.addAll(_text('================================\n'));
     bytes.addAll(_escFeed(1));
 
@@ -603,6 +636,10 @@ class PrinterService {
         formatPrice(item.totalPrice),
       )));
       bytes.addAll(_escFeed(1));
+      if (item.note != null && item.note!.isNotEmpty) {
+        bytes.addAll(_text('  > ${item.note}'));
+        bytes.addAll(_escFeed(1));
+      }
     }
 
     bytes.addAll(_text('--------------------------------\n'));
@@ -636,6 +673,8 @@ class PrinterService {
     bytes.addAll(_text('Thank you!\n'));
     bytes.addAll(_escBoldOff());
     bytes.addAll(_text('We hope to see you again\n'));
+    bytes.addAll(_text('Erbil - Bahirka\n'));
+    bytes.addAll(_text('0750 348 5909\n'));
 
     bytes.addAll(_escFeed(4));
     bytes.addAll(_escCut());
@@ -669,6 +708,9 @@ class PrinterService {
       bytes.addAll(_text('${item.quantity}x ${item.name}\n'));
       bytes.addAll(_escNormalSize());
       bytes.addAll(_escBoldOff());
+      if (item.note != null && item.note!.isNotEmpty) {
+        bytes.addAll(_text('   > ${item.note}\n'));
+      }
     }
 
     bytes.addAll(_escFeed(1));

@@ -590,8 +590,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 key: cardKey,
                 item: item,
                 index: index,
-                onTap: () => _viewItem(item),
-                onDelete: () => _deleteItem(item),
+                onLongPress: () => _viewItem(item),
                 onAddToCart: () => _addToCart(item, cardKey),
               ),
             );

@@ -5,17 +5,15 @@ import '../utils/formatters.dart';
 
 class MenuItemCard extends StatefulWidget {
   final MenuItem item;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
   final VoidCallback onAddToCart;
+  final VoidCallback onLongPress;
   final int index;
 
   const MenuItemCard({
     super.key,
     required this.item,
-    required this.onTap,
-    required this.onDelete,
     required this.onAddToCart,
+    required this.onLongPress,
     required this.index,
   });
 
@@ -63,11 +61,16 @@ class _MenuItemCardState extends State<MenuItemCard>
         onTapUp: (_) {
           setState(() => _isPressed = false);
           _controller.reverse();
-          widget.onTap();
+          widget.onAddToCart();
         },
         onTapCancel: () {
           setState(() => _isPressed = false);
           _controller.reverse();
+        },
+        onLongPress: () {
+          setState(() => _isPressed = false);
+          _controller.reverse();
+          widget.onLongPress();
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -173,27 +176,6 @@ class _MenuItemCardState extends State<MenuItemCard>
                       ),
                     ),
                   ],
-                ),
-                // Delete button
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  child: Material(
-                    color: Colors.black.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(20),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: widget.onDelete,
-                      child: const Padding(
-                        padding: EdgeInsets.all(6),
-                        child: Icon(
-                          Icons.delete_outline_rounded,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                    ),
-                  ),
                 ),
                 // Add to cart button
                 Positioned(

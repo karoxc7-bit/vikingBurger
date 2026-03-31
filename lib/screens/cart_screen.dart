@@ -272,94 +272,231 @@ class _CartScreenState extends State<CartScreen> {
             color: Colors.white.withValues(alpha: 0.05),
           ),
         ),
-        child: Row(
+        child: Column(
           children: [
-            // Image
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SizedBox(
-                width: 60,
-                height: 60,
-                child: item.imagePath != null &&
-                        File(item.imagePath!).existsSync()
-                    ? Image.file(
-                        File(item.imagePath!),
-                        fit: BoxFit.cover,
-                      )
-                    : Container(
-                        color: const Color(0xFF2A2A2A),
-                        child: Icon(
-                          Icons.fastfood_rounded,
-                          color: Colors.orange.withValues(alpha: 0.4),
-                          size: 28,
+            Row(
+              children: [
+                // Image
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    width: 60,
+                    height: 60,
+                    child: item.imagePath != null &&
+                            File(item.imagePath!).existsSync()
+                        ? Image.file(
+                            File(item.imagePath!),
+                            fit: BoxFit.cover,
+                          )
+                        : Container(
+                            color: const Color(0xFF2A2A2A),
+                            child: Icon(
+                              Icons.fastfood_rounded,
+                              color: Colors.orange.withValues(alpha: 0.4),
+                              size: 28,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Name & Price
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${formatPrice(item.price)} IQD',
+                        style: TextStyle(
+                          color: const Color(0xFFFF8C00).withValues(alpha: 0.8),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-              ),
+                    ],
+                  ),
+                ),
+                // Quantity controls
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A2A2A),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildQtyButton(
+                        icon: item.quantity > 1
+                            ? Icons.remove_rounded
+                            : Icons.delete_outline_rounded,
+                        color: item.quantity > 1
+                            ? Colors.white
+                            : Colors.redAccent,
+                        onTap: () => _decrementItem(item),
+                      ),
+                      Container(
+                        constraints: const BoxConstraints(minWidth: 36),
+                        alignment: Alignment.center,
+                        child: Text(
+                          '${item.quantity}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      _buildQtyButton(
+                        icon: Icons.add_rounded,
+                        color: const Color(0xFFFF8C00),
+                        onTap: () => _incrementItem(item),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            // Name & Price
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.name,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
+            // Note section
+            const SizedBox(height: 8),
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => _showNoteDialog(item),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: item.note != null && item.note!.isNotEmpty
+                      ? const Color(0xFF2A2A2A)
+                      : const Color(0xFF252525),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: item.note != null && item.note!.isNotEmpty
+                        ? const Color(0xFFFF8C00).withValues(alpha: 0.3)
+                        : Colors.white.withValues(alpha: 0.05),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      item.note != null && item.note!.isNotEmpty
+                          ? Icons.sticky_note_2_rounded
+                          : Icons.note_add_rounded,
+                      color: item.note != null && item.note!.isNotEmpty
+                          ? const Color(0xFFFF8C00)
+                          : Colors.white38,
+                      size: 16,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${formatPrice(item.price)} IQD',
-                    style: TextStyle(
-                      color: const Color(0xFFFF8C00).withValues(alpha: 0.8),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Quantity controls
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF2A2A2A),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildQtyButton(
-                    icon: item.quantity > 1
-                        ? Icons.remove_rounded
-                        : Icons.delete_outline_rounded,
-                    color: item.quantity > 1
-                        ? Colors.white
-                        : Colors.redAccent,
-                    onTap: () => _decrementItem(item),
-                  ),
-                  Container(
-                    constraints: const BoxConstraints(minWidth: 36),
-                    alignment: Alignment.center,
-                    child: Text(
-                      '${item.quantity}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        item.note != null && item.note!.isNotEmpty
+                            ? item.note!
+                            : 'تێبینی زیادبکە...',
+                        style: TextStyle(
+                          color: item.note != null && item.note!.isNotEmpty
+                              ? Colors.white.withValues(alpha: 0.8)
+                              : Colors.white.withValues(alpha: 0.3),
+                          fontSize: 12,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  ),
-                  _buildQtyButton(
-                    icon: Icons.add_rounded,
-                    color: const Color(0xFFFF8C00),
-                    onTap: () => _incrementItem(item),
-                  ),
-                ],
+                    if (item.note != null && item.note!.isNotEmpty)
+                      GestureDetector(
+                        onTap: () {
+                          setState(() => item.note = null);
+                        },
+                        child: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white38,
+                          size: 16,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showNoteDialog(OrderItem item) {
+    final controller = TextEditingController(text: item.note ?? '');
+    showDialog(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              const Icon(Icons.sticky_note_2_rounded, color: Color(0xFFFF8C00), size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'تێبینی بۆ ${item.name}',
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 3,
+            textDirection: TextDirection.rtl,
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+            decoration: InputDecoration(
+              hintText: 'بۆ نمونە: بێ پەنیر، زیاتر سۆس...',
+              hintStyle: TextStyle(
+                color: Colors.white.withValues(alpha: 0.3),
+              ),
+              filled: true,
+              fillColor: const Color(0xFF2A2A2A),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.all(14),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text(
+                'پەشیمانبوونەوە',
+                style: TextStyle(color: Colors.white54),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  final text = controller.text.trim();
+                  item.note = text.isEmpty ? null : text;
+                });
+                Navigator.pop(ctx);
+              },
+              child: const Text(
+                'پاشەکەوت',
+                style: TextStyle(color: Color(0xFFFF8C00)),
               ),
             ),
           ],

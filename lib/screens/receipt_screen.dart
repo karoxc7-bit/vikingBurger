@@ -117,12 +117,12 @@ class _ReceiptScreenState extends State<ReceiptScreen>
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              // Receipt card
+              // Receipt card - Black & White design for thermal printer preview
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF5F0E8),
-                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(4),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.3),
@@ -133,38 +133,45 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                 ),
                 child: Column(
                   children: [
-                    // Header
+                    // Header - Black & White
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      padding: const EdgeInsets.symmetric(vertical: 18),
                       decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFFFF8C00), Color(0xFFFF6B00)],
-                        ),
+                        color: Color(0xFF3A3A3A),
                         borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(16),
+                          top: Radius.circular(4),
                         ),
                       ),
                       child: const Column(
                         children: [
-                          Icon(Icons.restaurant_menu_rounded,
-                              color: Colors.white, size: 36),
-                          SizedBox(height: 8),
                           Text(
                             'Viking Burger',
                             style: TextStyle(
                               color: Colors.white,
-                              fontSize: 24,
+                              fontSize: 22,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 1,
                             ),
                           ),
-                          SizedBox(height: 4),
+                          SizedBox(height: 6),
                           Text(
-                            'وەصڵی فرۆشتن',
+                            'ئەربیل - بەحرکە - شەقامی گشتی',
                             style: TextStyle(
                               color: Colors.white70,
-                              fontSize: 14,
+                              fontSize: 11,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Directionality(
+                            textDirection: TextDirection.ltr,
+                            child: Text(
+                              '0750 348 5909',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                                letterSpacing: 1.5,
+                              ),
                             ),
                           ),
                         ],
@@ -173,7 +180,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
                     // Date & order info
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -183,16 +190,16 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                               const Text(
                                 'بەروار',
                                 style: TextStyle(
-                                  color: Color(0xFF888888),
-                                  fontSize: 12,
+                                  color: Color(0xFF666666),
+                                  fontSize: 11,
                                 ),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 _formatDate(order.createdAt),
                                 style: const TextStyle(
-                                  color: Color(0xFF333333),
-                                  fontSize: 13,
+                                  color: Colors.black,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -204,16 +211,16 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                               const Text(
                                 'ژمارەی ئایتم',
                                 style: TextStyle(
-                                  color: Color(0xFF888888),
-                                  fontSize: 12,
+                                  color: Color(0xFF666666),
+                                  fontSize: 11,
                                 ),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 '$itemCount',
                                 style: const TextStyle(
-                                  color: Color(0xFF333333),
-                                  fontSize: 13,
+                                  color: Colors.black,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -228,16 +235,16 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
                     // Items header
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
                       child: Row(
-                        children: [
-                          const Expanded(
+                        children: const [
+                          Expanded(
                             flex: 4,
                             child: Text(
                               'ئایتم',
                               style: TextStyle(
-                                color: Color(0xFF888888),
-                                fontSize: 12,
+                                color: Colors.black,
+                                fontSize: 11,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -246,21 +253,21 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                             width: 40,
                             child: Text(
                               'دانە',
-                              style: const TextStyle(
-                                color: Color(0xFF888888),
-                                fontSize: 12,
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 11,
                                 fontWeight: FontWeight.bold,
                               ),
                               textAlign: TextAlign.center,
                             ),
                           ),
-                          const Expanded(
+                          Expanded(
                             flex: 3,
                             child: Text(
                               'کۆی گشتی',
                               style: TextStyle(
-                                color: Color(0xFF888888),
-                                fontSize: 12,
+                                color: Colors.black,
+                                fontSize: 11,
                                 fontWeight: FontWeight.bold,
                               ),
                               textAlign: TextAlign.end,
@@ -270,69 +277,100 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                       ),
                     ),
 
-                    // Items
+                    // Items with notes
                     ...order.items.map((item) => Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
-                          child: Row(
+                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                flex: 4,
-                                child: Text(
-                                  item.name,
-                                  style: const TextStyle(
-                                    color: Color(0xFF333333),
-                                    fontSize: 14,
+                              Row(
+                                children: [
+                                  Expanded(
+                                    flex: 4,
+                                    child: Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        color: Colors.black,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 40,
+                                    child: Text(
+                                      '${item.quantity}',
+                                      style: const TextStyle(
+                                        color: Color(0xFF333333),
+                                        fontSize: 13,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    flex: 3,
+                                    child: Text(
+                                      '${formatPrice(item.totalPrice)} IQD',
+                                      style: const TextStyle(
+                                        color: Colors.black,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      textAlign: TextAlign.end,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              // Show note if exists
+                              if (item.note != null && item.note!.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2, right: 8),
+                                  child: Row(
+                                    children: [
+                                      const Text(
+                                        '↳ ',
+                                        style: TextStyle(
+                                          color: Color(0xFF666666),
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: Text(
+                                          item.note!,
+                                          style: const TextStyle(
+                                            color: Color(0xFF444444),
+                                            fontSize: 11,
+                                            fontStyle: FontStyle.italic,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ),
-                              SizedBox(
-                                width: 40,
-                                child: Text(
-                                  '${item.quantity}',
-                                  style: const TextStyle(
-                                    color: Color(0xFF555555),
-                                    fontSize: 14,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                              Expanded(
-                                flex: 3,
-                                child: Text(
-                                  '${formatPrice(item.totalPrice)} IQD',
-                                  style: const TextStyle(
-                                    color: Color(0xFF333333),
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  textAlign: TextAlign.end,
-                                ),
-                              ),
                             ],
                           ),
                         )),
 
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     _buildDashedLine(),
 
                     // Totals
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text(
                             'کۆی نرخەکان',
                             style: TextStyle(
-                              color: Color(0xFF555555),
-                              fontSize: 14,
+                              color: Color(0xFF333333),
+                              fontSize: 13,
                             ),
                           ),
                           Text(
                             '${formatPrice(order.totalPrice)} IQD',
                             style: const TextStyle(
-                              color: Color(0xFF333333),
-                              fontSize: 14,
+                              color: Colors.black,
+                              fontSize: 13,
                             ),
                           ),
                         ],
@@ -349,15 +387,15 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                             const Text(
                               'داشکاندن',
                               style: TextStyle(
-                                color: Colors.red,
-                                fontSize: 14,
+                                color: Colors.black,
+                                fontSize: 13,
                               ),
                             ),
                             Text(
                               '- ${formatPrice(order.discount)} IQD',
                               style: const TextStyle(
-                                color: Colors.red,
-                                fontSize: 14,
+                                color: Colors.black,
+                                fontSize: 13,
                               ),
                             ),
                           ],
@@ -369,23 +407,23 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
                     // Final price
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text(
                             'نرخی کۆتایی',
                             style: TextStyle(
-                              color: Color(0xFF333333),
-                              fontSize: 18,
+                              color: Colors.black,
+                              fontSize: 17,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           Text(
                             '${formatPrice(order.finalPrice)} IQD',
                             style: const TextStyle(
-                              color: Color(0xFFFF8C00),
-                              fontSize: 20,
+                              color: Colors.black,
+                              fontSize: 19,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -396,29 +434,29 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                     // Bottom decoration
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
                       decoration: const BoxDecoration(
-                        color: Color(0xFFEDE7DD),
+                        color: Color(0xFFF0F0F0),
                         borderRadius: BorderRadius.vertical(
-                          bottom: Radius.circular(16),
+                          bottom: Radius.circular(4),
                         ),
                       ),
                       child: const Column(
                         children: [
                           Text(
-                            'سوپاس بۆ کڕینت!',
+                            'سوپاس بۆ هەڵبژاردنی ئێمە',
                             style: TextStyle(
-                              color: Color(0xFF555555),
-                              fontSize: 16,
+                              color: Colors.black,
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           SizedBox(height: 4),
                           Text(
-                            'بەخێرهاتنەوەت چاوەڕوان دەکەین',
+                            'چاوەڕێی گەڕانەوەت دەکەین بۆ تامێکی تایبەت تر',
                             style: TextStyle(
-                              color: Color(0xFF888888),
-                              fontSize: 12,
+                              color: Color(0xFF555555),
+                              fontSize: 11,
                             ),
                           ),
                         ],
@@ -458,7 +496,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                           ),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF8C00),
+                          backgroundColor: const Color(0xFF333333),
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
@@ -482,8 +520,8 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                               ),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF4CAF50),
-                                side: const BorderSide(color: Color(0xFF4CAF50), width: 1.5),
+                                foregroundColor: Colors.white70,
+                                side: const BorderSide(color: Colors.white30, width: 1.5),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14),
                                 ),
@@ -503,8 +541,8 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                               ),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFFFF5722),
-                                side: const BorderSide(color: Color(0xFFFF5722), width: 1.5),
+                                foregroundColor: Colors.white70,
+                                side: const BorderSide(color: Colors.white30, width: 1.5),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14),
                                 ),
@@ -535,7 +573,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
             child: Container(
               height: 1,
               color: index.isEven
-                  ? const Color(0xFFCCCCCC)
+                  ? const Color(0xFF999999)
                   : Colors.transparent,
             ),
           ),

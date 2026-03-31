@@ -319,33 +319,50 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                       children: order.items.map((item) {
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                '${item.quantity}x',
-                                style: TextStyle(
-                                  color: const Color(0xFFFF8C00).withValues(alpha: 0.8),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              Row(
+                                children: [
+                                  Text(
+                                    '${item.quantity}x',
+                                    style: TextStyle(
+                                      color: const Color(0xFFFF8C00).withValues(alpha: 0.8),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${formatPrice(item.totalPrice)} IQD',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.6),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  item.name,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13,
+                              if (item.note != null && item.note!.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2, right: 24),
+                                  child: Text(
+                                    '↳ ${item.note}',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.4),
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              Text(
-                                '${formatPrice(item.totalPrice)} IQD',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.6),
-                                  fontSize: 13,
-                                ),
-                              ),
                             ],
                           ),
                         );
@@ -386,6 +403,7 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen> {
                                 price: item.price,
                                 imagePath: item.imagePath,
                                 quantity: item.quantity,
+                                note: item.note,
                               )).toList();
                               await Navigator.push(
                                 context,

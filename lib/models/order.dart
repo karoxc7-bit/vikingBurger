@@ -6,6 +6,7 @@ class OrderItem {
   final double price;
   final String? imagePath;
   int quantity;
+  String? note;
 
   OrderItem({
     required this.menuItemId,
@@ -13,6 +14,7 @@ class OrderItem {
     required this.price,
     this.imagePath,
     this.quantity = 1,
+    this.note,
   });
 
   double get totalPrice => price * quantity;
@@ -25,6 +27,7 @@ class OrderItem {
       'price': price,
       'quantity': quantity,
       'imagePath': imagePath,
+      'note': note,
     };
   }
 
@@ -35,6 +38,7 @@ class OrderItem {
       price: (map['price'] as num).toDouble(),
       quantity: (map['quantity'] as num).toInt(),
       imagePath: map['imagePath'] as String?,
+      note: map['note'] as String?,
     );
   }
 }
