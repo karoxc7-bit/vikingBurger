@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/menu_item.dart';
 import '../models/order.dart' as models;
 
@@ -18,12 +20,21 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    final dbPath = await getDatabasesPath();
+    String dbPath;
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final appSupportDir = await getApplicationSupportDirectory();
+      if (!await appSupportDir.exists()) {
+        await appSupportDir.create(recursive: true);
+      }
+      dbPath = appSupportDir.path;
+    } else {
+      dbPath = await getDatabasesPath();
+    }
     final path = join(dbPath, 'viking_burger.db');
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE menu_items (
@@ -48,6 +59,9 @@ class DatabaseHelper {
         if (oldVersion < 4) {
           await db.execute('ALTER TABLE order_items ADD COLUMN note TEXT');
         }
+        if (oldVersion < 5) {
+          await db.execute('ALTER TABLE orders ADD COLUMN isDelivery INTEGER NOT NULL DEFAULT 0');
+        }
       },
     );
   }
@@ -59,7 +73,8 @@ class DatabaseHelper {
         totalPrice REAL NOT NULL,
         discount REAL NOT NULL DEFAULT 0,
         finalPrice REAL NOT NULL DEFAULT 0,
-        createdAt TEXT NOT NULL
+        createdAt TEXT NOT NULL,
+        isDelivery INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute('''

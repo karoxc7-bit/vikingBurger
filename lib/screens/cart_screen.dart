@@ -21,6 +21,7 @@ class _CartScreenState extends State<CartScreen> {
   final _discountController = TextEditingController();
   double _discount = 0;
   bool _autoPrint = true;
+  bool _isDelivery = false;
 
   bool get _isEditing => widget.existingOrder != null;
 
@@ -40,6 +41,7 @@ class _CartScreenState extends State<CartScreen> {
     super.initState();
     if (widget.existingOrder != null) {
       _discount = widget.existingOrder!.discount;
+      _isDelivery = widget.existingOrder!.isDelivery;
       if (_discount > 0) {
         _discountController.text = formatPrice(_discount);
       }
@@ -86,6 +88,7 @@ class _CartScreenState extends State<CartScreen> {
         discount: _discount,
         finalPrice: _finalPrice,
         createdAt: widget.existingOrder?.createdAt,
+        isDelivery: _isDelivery,
       );
 
       if (_isEditing) {
@@ -665,6 +668,58 @@ class _CartScreenState extends State<CartScreen> {
             ],
           ),
           const SizedBox(height: 14),
+          // Delivery toggle
+          GestureDetector(
+            onTap: () => setState(() => _isDelivery = !_isDelivery),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: _isDelivery
+                    ? const Color(0xFFFF8C00).withValues(alpha: 0.12)
+                    : const Color(0xFF2A2A2A),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _isDelivery
+                      ? const Color(0xFFFF8C00).withValues(alpha: 0.4)
+                      : Colors.white.withValues(alpha: 0.08),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isDelivery ? Icons.moped_rounded : Icons.moped_outlined,
+                    color: _isDelivery ? const Color(0xFFFF8C00) : Colors.white38,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'داواکارییەکە بۆ دلیڤەرییە',
+                      style: TextStyle(
+                        color: _isDelivery ? Colors.white : Colors.white54,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    height: 24,
+                    width: 42,
+                    child: Switch(
+                      value: _isDelivery,
+                      onChanged: (v) => setState(() => _isDelivery = v),
+                      activeThumbColor: const Color(0xFFFF8C00),
+                      activeTrackColor: const Color(0xFFFF8C00).withValues(alpha: 0.35),
+                      inactiveThumbColor: Colors.white38,
+                      inactiveTrackColor: Colors.white12,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
           // Print toggle
           GestureDetector(
             onTap: () => setState(() => _autoPrint = !_autoPrint),

@@ -50,6 +50,7 @@ class Order {
   final double discount;
   final double finalPrice;
   final DateTime createdAt;
+  final bool isDelivery;
 
   Order({
     String? id,
@@ -58,6 +59,7 @@ class Order {
     this.discount = 0,
     double? finalPrice,
     DateTime? createdAt,
+    this.isDelivery = false,
   }) : id = id ?? const Uuid().v4(),
        finalPrice = finalPrice ?? (totalPrice - discount),
        createdAt = createdAt ?? DateTime.now();
@@ -69,6 +71,7 @@ class Order {
       'discount': discount,
       'finalPrice': finalPrice,
       'createdAt': createdAt.toIso8601String(),
+      'isDelivery': isDelivery ? 1 : 0,
     };
   }
 
@@ -80,6 +83,7 @@ class Order {
       discount: (map['discount'] as num?)?.toDouble() ?? 0,
       finalPrice: (map['finalPrice'] as num?)?.toDouble(),
       createdAt: DateTime.parse(map['createdAt'] as String),
+      isDelivery: (map['isDelivery'] as int?) == 1,
     );
   }
 }

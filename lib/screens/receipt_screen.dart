@@ -113,10 +113,14 @@ class _ReceiptScreenState extends State<ReceiptScreen>
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
+        body: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
               // Receipt card - Black & White design for thermal printer preview
               Container(
                 width: double.infinity,
@@ -177,6 +181,27 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                         ],
                       ),
                     ),
+
+                    if (order.isDelivery)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(top: 14, left: 20, right: 20),
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: const Color(0xFF666666), width: 1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            '*** دلیڤەری ***',
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
 
                     // Date & order info
                     Padding(
@@ -557,6 +582,8 @@ class _ReceiptScreenState extends State<ReceiptScreen>
               ),
               const SizedBox(height: 40),
             ],
+          ),
+        ),
           ),
         ),
       ),

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -8,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import '../models/order.dart';
 import '../utils/formatters.dart';
+import '../kurdish_reshaper.dart';
 
 enum PrinterConnectionType { system, network, bluetooth }
 
@@ -304,6 +306,10 @@ class PrinterService {
 
   // ===== PDF Generation =====
 
+  pw.Widget _pwText(String text, {pw.TextStyle? style, pw.TextAlign? textAlign, pw.TextDirection? textDirection}) {
+    return pw.Text(KurdishReshaper.convert(text), style: style, textAlign: textAlign, textDirection: textDirection);
+  }
+
   String _formatDate(DateTime date) {
     final hour = date.hour.toString().padLeft(2, '0');
     final minute = date.minute.toString().padLeft(2, '0');
@@ -311,168 +317,166 @@ class PrinterService {
   }
 
   Future<Uint8List> _generateCustomerReceipt(Order order) async {
+    final fontData = await rootBundle.load('assets/fonts/NotoKufiArabic.ttf');
+    final font = pw.Font.ttf(fontData);
+    final fontBoldData = await rootBundle.load('assets/fonts/NotoKufiArabic-Bold.ttf');
+    final fontBold = pw.Font.ttf(fontBoldData);
+
     final pdf = pw.Document();
-    // 58mm thermal receipt paper width ≈ 164 points (common small thermal)
-    // 80mm thermal receipt paper width ≈ 226 points
     const pageWidth = 164.0;
-    const pageMargin = 6.0;
+    const pageMargin = 0.0;
 
     pdf.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(pageWidth, double.infinity,
-            marginAll: pageMargin),
+        pageFormat: const PdfPageFormat(pageWidth, double.infinity, marginAll: pageMargin),
+        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        textDirection: pw.TextDirection.rtl,
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
               // Header
-              pw.Text('Viking Burger',
-                  style: pw.TextStyle(
-                      fontSize: 14, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 1),
-              pw.Text('================',
-                  style: const pw.TextStyle(fontSize: 7)),
-              pw.SizedBox(height: 4),
-
-              // Date
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Date:', style: const pw.TextStyle(fontSize: 7)),
-                  pw.Text(_formatDate(order.createdAt),
-                      style: const pw.TextStyle(fontSize: 7)),
-                ],
+              pw.Container(
+                width: double.infinity,
+                color: const PdfColor.fromInt(0xFF3A3A3A),
+                padding: const pw.EdgeInsets.symmetric(vertical: 10),
+                child: pw.Column(
+                  children: [
+                    _pwText('Viking Burger', style: pw.TextStyle(color: PdfColors.white, fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(height: 3),
+                    _pwText('ئەربیل - بەحرکە - شەقامی گشتی', style: pw.TextStyle(color: PdfColors.grey300, fontSize: 6)),
+                    pw.SizedBox(height: 1),
+                    _pwText('0750 348 5909', style: pw.TextStyle(color: PdfColors.grey300, fontSize: 6)),
+                  ]
+                )
               ),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Items:', style: const pw.TextStyle(fontSize: 7)),
-                  pw.Text(
-                      '${order.items.fold<int>(0, (s, i) => s + i.quantity)}',
-                      style: const pw.TextStyle(fontSize: 7)),
-                ],
-              ),
-              pw.SizedBox(height: 3),
-              pw.Text('--------------------------------',
-                  style: const pw.TextStyle(fontSize: 6)),
-              pw.SizedBox(height: 3),
 
-              // Column headers
-              pw.Row(
-                children: [
-                  pw.Expanded(
-                      flex: 5,
-                      child: pw.Text('Item',
-                          style: pw.TextStyle(
-                              fontSize: 7,
-                              fontWeight: pw.FontWeight.bold))),
-                  pw.SizedBox(
-                      width: 20,
-                      child: pw.Text('Qty',
-                          style: pw.TextStyle(
-                              fontSize: 7,
-                              fontWeight: pw.FontWeight.bold),
-                          textAlign: pw.TextAlign.center)),
-                  pw.Expanded(
-                      flex: 3,
-                      child: pw.Text('Total',
-                          style: pw.TextStyle(
-                              fontSize: 7,
-                              fontWeight: pw.FontWeight.bold),
-                          textAlign: pw.TextAlign.right)),
-                ],
-              ),
-              pw.SizedBox(height: 2),
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 10),
+                child: pw.Column(
+                  children: [
+                    pw.SizedBox(height: 8),
+                    if (order.isDelivery) ...[
+                      pw.Container(
+                        width: double.infinity,
+                        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+                        decoration: pw.BoxDecoration(
+                          border: pw.Border.all(color: PdfColors.grey800, width: 1.5),
+                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                        ),
+                        child: pw.Center(
+                          child: _pwText('*** دلیڤەری ***', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                        ),
+                      ),
+                      pw.SizedBox(height: 8),
+                    ],
+                    // Date & Items Count
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            _pwText('بەروار', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5)),
+                            pw.SizedBox(height: 1),
+                            _pwText(_formatDate(order.createdAt), style: pw.TextStyle(fontSize: 6, fontWeight: pw.FontWeight.bold)),
+                          ]
+                        ),
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.end,
+                          children: [
+                            _pwText('ژمارەی ئایتم', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5)),
+                            pw.SizedBox(height: 1),
+                            _pwText('${order.items.fold<int>(0, (s, i) => s + i.quantity)}', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
+                          ]
+                        ),
+                      ],
+                    ),
+                    pw.SizedBox(height: 4),
+                    _pwText('- '*20, style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
+                    pw.SizedBox(height: 4),
 
-              // Items
-              ...order.items.expand((item) => [
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.symmetric(vertical: 1),
-                      child: pw.Row(
+                    // Column headers
+                    pw.Row(
+                      children: [
+                        pw.Expanded(flex: 4, child: _pwText('ئایتم', style: pw.TextStyle(fontSize: 6, fontWeight: pw.FontWeight.bold))),
+                        pw.SizedBox(width: 25, child: _pwText('دانە', style: pw.TextStyle(fontSize: 6, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center)),
+                        pw.Expanded(flex: 4, child: _pwText('کۆی گشتی', style: pw.TextStyle(fontSize: 6, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 2),
+
+                    // Items
+                    ...order.items.expand((item) => [
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                            child: pw.Row(
+                              children: [
+                                pw.Expanded(flex: 4, child: _pwText(item.name, style: const pw.TextStyle(fontSize: 7))),
+                                pw.SizedBox(width: 25, child: _pwText('${item.quantity}', style: const pw.TextStyle(fontSize: 7), textAlign: pw.TextAlign.center)),
+                                pw.Expanded(flex: 4, child: _pwText('IQD ${formatPrice(item.totalPrice)}', style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
+                              ],
+                            ),
+                          ),
+                          if (item.note != null && item.note!.isNotEmpty)
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.only(bottom: 2, right: 4),
+                              child: _pwText('  > ${item.note}', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5)),
+                            ),
+                        ]),
+
+                    pw.SizedBox(height: 3),
+                    _pwText('- '*20, style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
+                    pw.SizedBox(height: 3),
+
+                    // Totals
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        _pwText('کۆی نرخەکان', style: const pw.TextStyle(fontSize: 7)),
+                        _pwText('IQD ${formatPrice(order.totalPrice)}', style: const pw.TextStyle(fontSize: 7)),
+                      ],
+                    ),
+                    if (order.discount > 0) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                         children: [
-                          pw.Expanded(
-                              flex: 5,
-                              child: pw.Text(item.name,
-                                  style: const pw.TextStyle(fontSize: 7))),
-                          pw.SizedBox(
-                              width: 20,
-                              child: pw.Text('${item.quantity}',
-                                  style: const pw.TextStyle(fontSize: 7),
-                                  textAlign: pw.TextAlign.center)),
-                          pw.Expanded(
-                              flex: 3,
-                              child: pw.Text(
-                                  formatPrice(item.totalPrice),
-                                  style: const pw.TextStyle(fontSize: 7),
-                                  textAlign: pw.TextAlign.right)),
+                          _pwText('داشکاندن', style: const pw.TextStyle(fontSize: 7)),
+                          _pwText('IQD -${formatPrice(order.discount)}', style: const pw.TextStyle(fontSize: 7)),
                         ],
                       ),
+                    ],
+                    pw.SizedBox(height: 3),
+                    _pwText('- '*20, style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
+                    pw.SizedBox(height: 5),
+
+                    // Final Price
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        _pwText('نرخی کۆتایی', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        _pwText('IQD ${formatPrice(order.finalPrice)}', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                      ],
                     ),
-                    if (item.note != null && item.note!.isNotEmpty)
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.only(bottom: 2, left: 4),
-                        child: pw.Text('  > ${item.note}',
-                            style: pw.TextStyle(
-                                fontSize: 6,
-                                fontStyle: pw.FontStyle.italic)),
-                      ),
-                  ]),
-
-              pw.SizedBox(height: 3),
-              pw.Text('--------------------------------',
-                  style: const pw.TextStyle(fontSize: 6)),
-              pw.SizedBox(height: 3),
-
-              // Totals
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Subtotal:',
-                      style: const pw.TextStyle(fontSize: 8)),
-                  pw.Text('${formatPrice(order.totalPrice)} IQD',
-                      style: const pw.TextStyle(fontSize: 8)),
-                ],
+                    pw.SizedBox(height: 10),
+                  ]
+                )
               ),
-              if (order.discount > 0)
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+
+              // Footer
+              pw.Container(
+                width: double.infinity,
+                color: const PdfColor.fromInt(0xFFF0F0F0),
+                padding: const pw.EdgeInsets.symmetric(vertical: 10),
+                child: pw.Column(
                   children: [
-                    pw.Text('Discount:',
-                        style: const pw.TextStyle(fontSize: 8)),
-                    pw.Text('- ${formatPrice(order.discount)} IQD',
-                        style: const pw.TextStyle(fontSize: 8)),
-                  ],
-                ),
-              pw.SizedBox(height: 2),
-              pw.Text('================================',
-                  style: const pw.TextStyle(fontSize: 6)),
-              pw.SizedBox(height: 2),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('TOTAL:',
-                      style: pw.TextStyle(
-                          fontSize: 11, fontWeight: pw.FontWeight.bold)),
-                  pw.Text('${formatPrice(order.finalPrice)} IQD',
-                      style: pw.TextStyle(
-                          fontSize: 11, fontWeight: pw.FontWeight.bold)),
-                ],
+                    _pwText('سوپاس بۆ هەڵبژاردنی ئێمە', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(height: 2),
+                    _pwText('چاوەڕێی گەڕانەوەت دەکەین بۆ تامێکی تایبەت تر', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5)),
+                  ]
+                )
               ),
-              pw.SizedBox(height: 6),
-              pw.Text('================================',
-                  style: const pw.TextStyle(fontSize: 6)),
-              pw.SizedBox(height: 4),
-              pw.Text('Thank you!',
-                  style: pw.TextStyle(
-                      fontSize: 9, fontWeight: pw.FontWeight.bold)),
-              pw.Text('We hope to see you again',
-                  style: const pw.TextStyle(fontSize: 7)),
-              pw.SizedBox(height: 1),
-              pw.Text('Erbil - Bahirka - Main St.',
-                  style: const pw.TextStyle(fontSize: 6)),
-              pw.Text('0750 348 5909',
-                  style: const pw.TextStyle(fontSize: 6)),
-              pw.SizedBox(height: 8),
             ],
           );
         },
@@ -483,6 +487,11 @@ class PrinterService {
   }
 
   Future<Uint8List> _generateKitchenReceipt(Order order) async {
+    final fontData = await rootBundle.load('assets/fonts/NotoKufiArabic.ttf');
+    final font = pw.Font.ttf(fontData);
+    final fontBoldData = await rootBundle.load('assets/fonts/NotoKufiArabic-Bold.ttf');
+    final fontBold = pw.Font.ttf(fontBoldData);
+
     final pdf = pw.Document();
     // 58mm thermal receipt paper
     const pageWidth = 164.0;
@@ -490,33 +499,39 @@ class PrinterService {
 
     pdf.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(pageWidth, double.infinity,
-            marginAll: pageMargin),
+        pageFormat: const PdfPageFormat(pageWidth, double.infinity, marginAll: pageMargin),
+        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        textDirection: pw.TextDirection.rtl,
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
-              // Header - Kitchen
-              pw.Text('** KITCHEN **',
-                  style: pw.TextStyle(
-                      fontSize: 14, fontWeight: pw.FontWeight.bold)),
+              _pwText('** مەتبەخ **', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 2),
-              pw.Text(_formatDate(order.createdAt),
-                  style: const pw.TextStyle(fontSize: 8)),
+              _pwText(_formatDate(order.createdAt), style: const pw.TextStyle(fontSize: 8)),
               pw.SizedBox(height: 4),
-              pw.Text('================================',
-                  style: const pw.TextStyle(fontSize: 6)),
+              _pwText('================================', style: const pw.TextStyle(fontSize: 6)),
               pw.SizedBox(height: 6),
 
-              // Items - bigger font, just name + quantity, no background fill
+              if (order.isDelivery) ...[
+                pw.Container(
+                  width: double.infinity,
+                  padding: const pw.EdgeInsets.symmetric(vertical: 4),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.black, width: 1.5),
+                  ),
+                  child: pw.Center(
+                    child: _pwText('*** دلیڤەری ***', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                  ),
+                ),
+                pw.SizedBox(height: 6),
+              ],
+
               ...order.items.expand((item) => [
                     pw.Container(
                       margin: const pw.EdgeInsets.only(bottom: 1),
-                      padding: const pw.EdgeInsets.symmetric(
-                          vertical: 3, horizontal: 4),
-                      decoration: pw.BoxDecoration(
-                        border: pw.Border.all(width: 0.8),
-                      ),
+                      padding: const pw.EdgeInsets.symmetric(vertical: 3, horizontal: 4),
+                      decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.8)),
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
@@ -524,25 +539,15 @@ class PrinterService {
                             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                             children: [
                               pw.Expanded(
-                                child: pw.Text(item.name,
-                                    style: pw.TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: pw.FontWeight.bold)),
+                                child: _pwText(item.name, style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
                               ),
-                              pw.Text('  x${item.quantity}',
-                                  style: pw.TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: pw.FontWeight.bold,
-                                  )),
+                              _pwText('  ${item.quantity}x', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
                             ],
                           ),
                           if (item.note != null && item.note!.isNotEmpty)
                             pw.Padding(
                               padding: const pw.EdgeInsets.only(top: 2),
-                              child: pw.Text('> ${item.note}',
-                                  style: pw.TextStyle(
-                                      fontSize: 8,
-                                      fontStyle: pw.FontStyle.italic)),
+                              child: _pwText('> ${item.note}', style: pw.TextStyle(fontSize: 8)),
                             ),
                         ],
                       ),
@@ -551,13 +556,9 @@ class PrinterService {
                   ]),
 
               pw.SizedBox(height: 4),
-              pw.Text('================================',
-                  style: const pw.TextStyle(fontSize: 6)),
+              _pwText('================================', style: const pw.TextStyle(fontSize: 6)),
               pw.SizedBox(height: 3),
-              pw.Text(
-                  'Total: ${order.items.fold<int>(0, (s, i) => s + i.quantity)} items',
-                  style: pw.TextStyle(
-                      fontSize: 10, fontWeight: pw.FontWeight.bold)),
+              _pwText('کۆی ئایتم: ${order.items.fold<int>(0, (s, i) => s + i.quantity)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
               pw.SizedBox(height: 8),
             ],
           );
@@ -581,7 +582,7 @@ class PrinterService {
   List<int> _escNormalSize() => [0x1B, 0x21, 0x00];
   List<int> _escFeed(int lines) => List.generate(lines, (_) => 0x0A);
   List<int> _escCut() => [0x1D, 0x56, 0x01]; // Partial cut
-  List<int> _text(String s) => utf8.encode(s);
+  List<int> _text(String s) => utf8.encode(KurdishReshaper.convert(s));
 
   String _padRight2(String left, String right) {
     final space = _lineWidth - left.length - right.length;
@@ -609,22 +610,36 @@ class PrinterService {
     bytes.addAll(_text('VIKING BURGER\n'));
     bytes.addAll(_escBoldOff());
     bytes.addAll(_escNormalSize());
-    bytes.addAll(_text('Erbil - Bahirka - Main St.\n'));
+    bytes.addAll(_text('ئەربیل - بەحرکە - شەقامی گشتی\n'));
     bytes.addAll(_text('0750 348 5909\n'));
-    bytes.addAll(_text('================================\n'));
+    bytes.addAll(_text('--------------------------------\n'));
     bytes.addAll(_escFeed(1));
+
+    if (order.isDelivery) {
+      bytes.addAll(_escCenter());
+      bytes.addAll(_escDoubleSize());
+      bytes.addAll(_escBoldOn());
+      bytes.addAll(_text('*** دلیڤەری ***\n'));
+      bytes.addAll(_escBoldOff());
+      bytes.addAll(_escNormalSize());
+      bytes.addAll(_escFeed(1));
+      bytes.addAll(_text('--------------------------------\n'));
+      bytes.addAll(_escFeed(1));
+    }
 
     // Date & items
     bytes.addAll(_escLeft());
-    bytes.addAll(_text(_padRight2('Date:', _formatDate(order.createdAt))));
+    bytes.addAll(_text(_padRight2('بەروار', 'ژمارەی ئایتم')));
     bytes.addAll(_escFeed(1));
-    bytes.addAll(_text(_padRight2('Items:', '$itemCount')));
+    bytes.addAll(_escBoldOn());
+    bytes.addAll(_text(_padRight2(_formatDate(order.createdAt), '$itemCount')));
+    bytes.addAll(_escBoldOff());
     bytes.addAll(_escFeed(1));
     bytes.addAll(_text('--------------------------------\n'));
 
     // Column headers
     bytes.addAll(_escBoldOn());
-    bytes.addAll(_text(_padColumns('Item', 'Qty', 'Total')));
+    bytes.addAll(_text(_padColumns('ئایتم', 'دانە', 'کۆی گشتی')));
     bytes.addAll(_escFeed(1));
     bytes.addAll(_escBoldOff());
 
@@ -633,7 +648,7 @@ class PrinterService {
       bytes.addAll(_text(_padColumns(
         item.name,
         '${item.quantity}',
-        formatPrice(item.totalPrice),
+        'IQD ${formatPrice(item.totalPrice)}',
       )));
       bytes.addAll(_escFeed(1));
       if (item.note != null && item.note!.isNotEmpty) {
@@ -645,36 +660,32 @@ class PrinterService {
     bytes.addAll(_text('--------------------------------\n'));
 
     // Subtotal
-    bytes.addAll(_text(_padRight2('Subtotal:', '${formatPrice(order.totalPrice)} IQD')));
+    bytes.addAll(_text(_padRight2('کۆی نرخەکان', 'IQD ${formatPrice(order.totalPrice)}')));
     bytes.addAll(_escFeed(1));
 
     // Discount
     if (order.discount > 0) {
-      bytes.addAll(_text(_padRight2('Discount:', '- ${formatPrice(order.discount)} IQD')));
+      bytes.addAll(_text(_padRight2('داشکاندن', 'IQD -${formatPrice(order.discount)}')));
       bytes.addAll(_escFeed(1));
     }
 
-    bytes.addAll(_text('================================\n'));
+    bytes.addAll(_text('--------------------------------\n'));
 
     // Total - emphasized
     bytes.addAll(_escBoldOn());
-    bytes.addAll(_escDoubleSize());
-    bytes.addAll(_escCenter());
-    bytes.addAll(_text('${formatPrice(order.finalPrice)} IQD\n'));
-    bytes.addAll(_escNormalSize());
+    bytes.addAll(_text(_padRight2('نرخی کۆتایی', 'IQD ${formatPrice(order.finalPrice)}')));
     bytes.addAll(_escBoldOff());
+    bytes.addAll(_escFeed(1));
 
-    bytes.addAll(_text('================================\n'));
+    bytes.addAll(_text('--------------------------------\n'));
 
     // Footer
     bytes.addAll(_escCenter());
     bytes.addAll(_escFeed(1));
     bytes.addAll(_escBoldOn());
-    bytes.addAll(_text('Thank you!\n'));
+    bytes.addAll(_text('سوپاس بۆ هەڵبژاردنی ئێمە!\n'));
     bytes.addAll(_escBoldOff());
-    bytes.addAll(_text('We hope to see you again\n'));
-    bytes.addAll(_text('Erbil - Bahirka\n'));
-    bytes.addAll(_text('0750 348 5909\n'));
+    bytes.addAll(_text('چاوەڕێی گەڕانەوەت دەکەین بۆ تامێکی تایبەت تر\n'));
 
     bytes.addAll(_escFeed(4));
     bytes.addAll(_escCut());
@@ -692,13 +703,25 @@ class PrinterService {
     bytes.addAll(_escCenter());
     bytes.addAll(_escDoubleSize());
     bytes.addAll(_escBoldOn());
-    bytes.addAll(_text('** KITCHEN **\n'));
+    bytes.addAll(_text('** مەتبەخ **\n'));
     bytes.addAll(_escBoldOff());
     bytes.addAll(_escNormalSize());
     bytes.addAll(_text(_formatDate(order.createdAt)));
     bytes.addAll(_escFeed(1));
     bytes.addAll(_text('================================\n'));
     bytes.addAll(_escFeed(1));
+
+    if (order.isDelivery) {
+      bytes.addAll(_escCenter());
+      bytes.addAll(_escDoubleSize());
+      bytes.addAll(_escBoldOn());
+      bytes.addAll(_text('*** دلیڤەری ***\n'));
+      bytes.addAll(_escBoldOff());
+      bytes.addAll(_escNormalSize());
+      bytes.addAll(_escFeed(1));
+      bytes.addAll(_text('================================\n'));
+      bytes.addAll(_escFeed(1));
+    }
 
     // Items - large and bold
     bytes.addAll(_escLeft());
@@ -717,7 +740,7 @@ class PrinterService {
     bytes.addAll(_escCenter());
     bytes.addAll(_text('================================\n'));
     bytes.addAll(_escBoldOn());
-    bytes.addAll(_text('Total: $itemCount items\n'));
+    bytes.addAll(_text('کۆی ئایتم: $itemCount\n'));
     bytes.addAll(_escBoldOff());
 
     bytes.addAll(_escFeed(4));
