@@ -42,8 +42,11 @@ dependencies:
   pdf: ^3.11.3
   printing: ^5.14.2
   shared_preferences: ^2.3.5
-  print_bluetooth_thermal: ^1.1.1
   share_plus: ^10.1.4
+  gal: ^2.3.0
+  flutter_blue_plus: ^1.32.12
+  image: ^4.3.0
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/order.dart';
 import '../utils/formatters.dart';
 import '../services/printer_service.dart';
+import 'printer_settings_screen.dart';
 
 class ReceiptScreen extends StatefulWidget {
   final Order order;
@@ -17,8 +18,16 @@ class _ReceiptScreenState extends State<ReceiptScreen>
     with SingleTickerProviderStateMixin {
   final _printerService = PrinterService();
   bool _isPrinting = false;
+  String _printStatus = '';
   late AnimationController _printAnimController;
   late Animation<double> _printBounce;
+
+  // Cache of printer configuration so the UI can adapt (different button
+  // label/color when a BLE printer is paired vs not).
+  SavedPrinter? _printer;
+  bool _printerLoaded = false;
+
+  bool get _hasPrinter => _printer != null;
 
   @override
   void initState() {
@@ -32,24 +41,31 @@ class _ReceiptScreenState extends State<ReceiptScreen>
       curve: Curves.elasticOut,
     );
     _printAnimController.forward();
+    _loadPrinterConfig();
+  }
+
+  Future<void> _loadPrinterConfig() async {
+    final printer = await _printerService.getPrinter();
+    if (!mounted) return;
+    setState(() {
+      _printer = printer;
+      _printerLoaded = true;
+    });
 
     if (widget.autoPrint) {
-      Future.delayed(const Duration(milliseconds: 500), _handleAutoPrint);
+      Future.delayed(const Duration(milliseconds: 400), _handleAutoPrint);
     }
   }
 
-  /// Auto-print routing:
-  /// - If any printer is configured → direct print
-  /// - Otherwise (iPrint / thermal app users) → open share sheet
+  /// Smart auto-print:
+  ///   - Printer configured? → print instantly in place with a nice overlay
+  ///   - Otherwise → open the save-to-Photos flow (iPrint compatibility)
   Future<void> _handleAutoPrint() async {
     if (!mounted) return;
-    final customer = await _printerService.getCustomerPrinter();
-    final kitchen = await _printerService.getKitchenPrinter();
-    if (!mounted) return;
-    if (customer != null || kitchen != null) {
-      await _printBothReceipts();
+    if (_hasPrinter) {
+      await _printReceipt();
     } else {
-      _showShareChoiceSheet();
+      _saveReceiptToPhotos();
     }
   }
 
@@ -59,11 +75,24 @@ class _ReceiptScreenState extends State<ReceiptScreen>
     super.dispose();
   }
 
-  Future<void> _printBothReceipts() async {
-    setState(() => _isPrinting = true);
-    final result = await _printerService.printBoth(widget.order);
+  Future<void> _printReceipt() async {
+    setState(() {
+      _isPrinting = true;
+      _printStatus = 'بەستنەوە بە پرینتەر...';
+    });
+    // Tiny visual tick so the user sees "connecting" state before we move
+    // on to the bytes-over-BLE phase, which can sometimes finish very fast.
+    await Future.delayed(const Duration(milliseconds: 400));
     if (mounted) {
-      setState(() => _isPrinting = false);
+      setState(() => _printStatus = 'ناردنی وەسڵ...');
+    }
+
+    final result = await _printerService.printReceipt(widget.order);
+    if (mounted) {
+      setState(() {
+        _isPrinting = false;
+        _printStatus = '';
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -80,31 +109,56 @@ class _ReceiptScreenState extends State<ReceiptScreen>
     }
   }
 
-  Future<void> _printCustomerOnly() async {
+  Future<void> _openPrinterSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const PrinterSettingsScreen()),
+    );
+    // Reload the printer config after returning so the UI updates.
+    await _loadPrinterConfig();
+  }
+
+  /// Save the receipt as a PNG into the "Viking Burger" album in Photos.
+  /// Cashier then opens iPrint and picks the latest photo from the album.
+  Future<void> _saveReceiptToPhotos() async {
     setState(() => _isPrinting = true);
     try {
-      await _printerService.printCustomerWithDialog(widget.order);
-    } catch (_) {}
+      final album = await _printerService.saveReceiptToGallery(widget.order);
+      if (mounted) {
+        _showSavedDialog(album: album);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final s = e.toString();
+      String msg;
+      if (s.contains('PHOTO_PERMISSION_DENIED')) {
+        msg = 'تکایە ڕێگەی گەیشتن بە وێنەکان بدە لە ڕێکخستنەکانی iPhone';
+      } else if (s.contains('PLUGIN_UNAVAILABLE')) {
+        msg =
+            'پلەگینی پاشەکەوتکردن ئامادە نییە. تکایە ئەپلیکەیشنەکە بە تەواوی دامێزرێنە لەبار (Full Rebuild).';
+      } else {
+        msg = 'نەتوانرا وێنە پاشەکەوت بکرێت: $e';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg, textDirection: TextDirection.rtl),
+          backgroundColor: Colors.red.shade700,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
     if (mounted) setState(() => _isPrinting = false);
   }
 
-  Future<void> _printKitchenOnly() async {
-    setState(() => _isPrinting = true);
-    try {
-      await _printerService.printKitchenWithDialog(widget.order);
-    } catch (_) {}
-    if (mounted) setState(() => _isPrinting = false);
-  }
-
-  /// Share receipt as a pixel-perfect PNG sized for the thermal printer.
-  /// Users then pick iPrint (or any thermal printer app) from the share sheet.
-  Future<void> _shareReceiptToPrinterApp({required bool isKitchen}) async {
+  /// Optional fallback: iOS share sheet (for users who prefer other apps).
+  Future<void> _shareReceiptViaSystemSheet() async {
     setState(() => _isPrinting = true);
     try {
       final box = context.findRenderObject() as RenderBox?;
       await _printerService.shareReceiptAsImage(
         widget.order,
-        isKitchen: isKitchen,
         sharePositionOrigin:
             box != null ? box.localToGlobal(Offset.zero) & box.size : null,
       );
@@ -113,13 +167,13 @@ class _ReceiptScreenState extends State<ReceiptScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'هەڵەیەک ڕوویدا لە هاوبەشکردنی وەسڵ: $e',
+              'هەڵەیەک ڕوویدا: $e',
               textDirection: TextDirection.rtl,
             ),
             backgroundColor: Colors.red.shade700,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
@@ -127,137 +181,160 @@ class _ReceiptScreenState extends State<ReceiptScreen>
     if (mounted) setState(() => _isPrinting = false);
   }
 
-  void _showShareChoiceSheet() {
-    showModalBottomSheet(
+  /// Success dialog with step-by-step iPrint instructions.
+  void _showSavedDialog({required String album}) {
+    showDialog(
       context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
+      barrierDismissible: false,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  width: 44,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.greenAccent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                const Text(
-                  'کام وەسڵ هاوبەش بکرێت؟',
-                  textAlign: TextAlign.center,
+                child: const Icon(Icons.check_circle_rounded,
+                    color: Colors.greenAccent, size: 26),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'وێنەکە پاشەکەوت کرا',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 17,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'وەسڵەکە وەک وێنەیەکی شفاف ئامادە دەکرێت و دەتوانیت بینێریت بۆ ئەپی iPrint',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.55),
-                    fontSize: 12,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                _buildShareTile(
-                  icon: Icons.receipt_long_rounded,
-                  title: 'وەصڵی کڕیار',
-                  subtitle: 'هەموو کورتەیەکی فرۆشتنەکە',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _shareReceiptToPrinterApp(isKitchen: false);
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildShareTile(
-                  icon: Icons.restaurant_rounded,
-                  title: 'وەصڵی مەتبەخ',
-                  subtitle: 'تەنها ئایتمەکان و تێبینییەکان',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _shareReceiptToPrinterApp(isKitchen: true);
-                  },
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildShareTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: const Color(0xFF2A2A2A),
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFF8C00).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
+                  color: const Color(0xFF2A2A2A),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child:
-                    Icon(icon, color: const Color(0xFFFF8C00), size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.5),
-                        fontSize: 11,
+                    const Icon(Icons.photo_library_rounded,
+                        color: Color(0xFFFF8C00), size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'ئەلبۆم: $album',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_left_rounded,
-                color: Colors.white.withValues(alpha: 0.4),
+              const SizedBox(height: 14),
+              const Text(
+                'بۆ چاپکردن:',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
+              const SizedBox(height: 8),
+              _buildStep(1, 'ئەپی iPrint بکەرەوە'),
+              _buildStep(2, 'کلیک لەسەر وێنە / Photo بکە'),
+              _buildStep(3, 'ئەلبۆمی Viking Burger هەڵبژێرە'),
+              _buildStep(4, 'دوایین وێنە هەڵبژێرە و Print بکە'),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text(
+                'باشە',
+                style: TextStyle(
+                  color: Color(0xFFFF8C00),
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _shareReceiptViaSystemSheet();
+              },
+              icon: const Icon(Icons.ios_share_rounded,
+                  color: Colors.white54, size: 16),
+              label: const Text(
+                'هاوبەشکردن',
+                style: TextStyle(color: Colors.white54, fontSize: 13),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
+
+  Widget _buildStep(int num, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF8C00).withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                '$num',
+                style: const TextStyle(
+                  color: Color(0xFFFF8C00),
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                text,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   String _formatDate(DateTime date) {
     final months = [
@@ -669,118 +746,10 @@ class _ReceiptScreenState extends State<ReceiptScreen>
               ),
               const SizedBox(height: 24),
 
-              // Print buttons
+              // Smart print area — adapts based on printer config
               ScaleTransition(
                 scale: _printBounce,
-                child: Column(
-                  children: [
-                    // Primary action: Share to iPrint (thermal printer app)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 58,
-                      child: ElevatedButton.icon(
-                        onPressed: _isPrinting ? null : _showShareChoiceSheet,
-                        icon: _isPrinting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.ios_share_rounded, size: 22),
-                        label: const Text(
-                          'هاوبەشکردن بۆ پرینتەر (iPrint)',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF8C00),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          elevation: 0,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    // Secondary: Direct print (for configured printers)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton.icon(
-                        onPressed: _isPrinting ? null : _printBothReceipts,
-                        icon: const Icon(Icons.print_rounded, size: 20),
-                        label: const Text(
-                          'پرینتی ڕاستەوخۆ',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2A2A2A),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          elevation: 0,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    // Individual print buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SizedBox(
-                            height: 44,
-                            child: OutlinedButton.icon(
-                              onPressed: _isPrinting ? null : _printCustomerOnly,
-                              icon: const Icon(Icons.receipt_long_rounded, size: 16),
-                              label: const Text(
-                                'کڕیار',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white70,
-                                side: const BorderSide(color: Colors.white24, width: 1.2),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: SizedBox(
-                            height: 44,
-                            child: OutlinedButton.icon(
-                              onPressed: _isPrinting ? null : _printKitchenOnly,
-                              icon: const Icon(Icons.restaurant_rounded, size: 16),
-                              label: const Text(
-                                'مەتبەخ',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white70,
-                                side: const BorderSide(color: Colors.white24, width: 1.2),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                child: _buildSmartPrintActions(),
               ),
               const SizedBox(height: 40),
             ],
@@ -788,6 +757,262 @@ class _ReceiptScreenState extends State<ReceiptScreen>
         ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// Adapts the primary action based on whether a printer is configured.
+  /// When paired to BLE printer:
+  ///   → Big "Print now" button (one tap, auto-prints both copies)
+  /// When no printer:
+  ///   → Setup wizard suggestion + Photos fallback
+  Widget _buildSmartPrintActions() {
+    if (!_printerLoaded) {
+      return const SizedBox(
+        height: 58,
+        child: Center(
+          child: CircularProgressIndicator(color: Color(0xFFFF8C00)),
+        ),
+      );
+    }
+
+    if (_hasPrinter) {
+      return Column(
+        children: [
+          // Primary: one-tap direct print
+          SizedBox(
+            width: double.infinity,
+            height: 58,
+            child: ElevatedButton.icon(
+              onPressed: _isPrinting ? null : _printReceipt,
+              icon: _isPrinting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Icon(Icons.print_rounded, size: 22),
+              label: Text(
+                _isPrinting
+                    ? (_printStatus.isNotEmpty
+                        ? _printStatus
+                        : 'پرینت دەکرێت...')
+                    : 'چاپکردنی وەسڵ',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF8C00),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                elevation: 0,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Connected printer chip
+          _buildConnectedPrinterChip(),
+          const SizedBox(height: 10),
+          TextButton.icon(
+            onPressed: _isPrinting ? null : _saveReceiptToPhotos,
+            icon: const Icon(Icons.photo_library_rounded,
+                color: Colors.white38, size: 16),
+            label: const Text(
+              'پاشەکەوت وەک وێنە',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // No printer configured — promote the one-time setup, with Photos fallback.
+    return Column(
+      children: [
+        // Prominent setup card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFFFF8C00).withValues(alpha: 0.15),
+                const Color(0xFFFF8C00).withValues(alpha: 0.05),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: const Color(0xFFFF8C00).withValues(alpha: 0.4),
+            ),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color:
+                          const Color(0xFFFF8C00).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.auto_awesome_rounded,
+                        color: Color(0xFFFF8C00), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'چاپکردنی زیرەک',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'پرینتەرەکەت بە بلوتوس جووت بکە بۆ چاپکردنی ڕاستەوخۆ بێ iPrint',
+                          style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              height: 1.4),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: _openPrinterSettings,
+                  icon: const Icon(Icons.bluetooth_searching_rounded, size: 20),
+                  label: const Text(
+                    'یەک-جار ڕێکخستنی پرینتەر',
+                    style: TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF8C00),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        // Separator "or"
+        Row(
+          children: [
+            const Expanded(child: Divider(color: Colors.white12)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text('یان',
+                  style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.4),
+                      fontSize: 11)),
+            ),
+            const Expanded(child: Divider(color: Colors.white12)),
+          ],
+        ),
+        const SizedBox(height: 14),
+        // Photos fallback for iPrint users
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: OutlinedButton.icon(
+            onPressed: _isPrinting ? null : _saveReceiptToPhotos,
+            icon: const Icon(Icons.photo_library_rounded, size: 18),
+            label: const Text(
+              'پاشەکەوت لە وێنەکان (بۆ iPrint)',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white70,
+              side: const BorderSide(color: Colors.white24, width: 1.2),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildConnectedPrinterChip() {
+    if (_printer == null) return const SizedBox.shrink();
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Flexible(
+          child: _printerChip(
+              icon: Icons.bluetooth_rounded,
+              label: _printer!.name,
+              color: const Color(0xFF42A5F5)),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          onPressed: _openPrinterSettings,
+          icon: const Icon(Icons.settings_rounded,
+              color: Colors.white38, size: 16),
+          tooltip: 'ڕێکخستنەکان',
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        ),
+      ],
+    );
+  }
+
+  Widget _printerChip({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Icon(icon, color: color, size: 14),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                  color: color, fontSize: 11, fontWeight: FontWeight.w600),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }

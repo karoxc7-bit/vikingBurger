@@ -49,6 +49,8 @@
 	<string>بۆ گرتنی وێنەی ئایتمەکانی مێنوو پێویستمان بە کامێرا هەیە</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>بۆ هەڵبژاردنی وێنەی ئایتمەکانی مێنوو پێویستمان بە گالەری هەیە</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>بۆ پاشەکەوتکردنی وەسڵە چاپکراوەکان لە ئەلبۆمی وێنەکان</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>بۆ پەیوەندیکردن بە پرینتەری بلوتوس</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

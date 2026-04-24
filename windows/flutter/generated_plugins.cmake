@@ -4,7 +4,8 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
-  print_bluetooth_thermal
+  gal
+  permission_handler_windows
   printing
   share_plus
   url_launcher_windows
