@@ -82,14 +82,18 @@ class BlePrinterService {
   // ===== Scanning =====
 
   /// Starts a BLE scan and streams discovered results.
-  /// Filters out unnamed devices and weak signals; thermal printers
-  /// typically advertise a human-readable name.
+  ///
+  /// By default we show **every** BLE device discovered — even ones with
+  /// no advertised name — because some thermal printers stop advertising
+  /// their name once they enter connectable mode. The UI sorts/filters
+  /// further (known-printer hints + RSSI) so the user still sees the
+  /// most likely candidate at the top.
   ///
   /// Throws a plain [Exception] with the key `PLUGIN_UNAVAILABLE` if the
   /// native BLE plugin isn't registered yet (usually means the user did a
   /// hot restart after adding the plugin and needs a full rebuild).
   Stream<List<ScanResult>> scanForPrinters({
-    Duration timeout = const Duration(seconds: 10),
+    Duration timeout = const Duration(seconds: 20),
   }) async* {
     final seen = <String, ScanResult>{};
 
@@ -97,10 +101,33 @@ class BlePrinterService {
       await FlutterBluePlus.stopScan();
     } catch (_) {}
 
+    // Seed the list with any BLE devices the OS already considers
+    // "connected" to some other app. Some iOS BLE printers appear here
+    // once they've been connected once; without this, the scan might
+    // never show them again because the printer stops advertising.
+    try {
+      for (final d in FlutterBluePlus.connectedDevices) {
+        seen['sys_${d.remoteId.str}'] = ScanResult(
+          device: d,
+          advertisementData: AdvertisementData(
+            advName: d.platformName,
+            txPowerLevel: null,
+            appearance: null,
+            connectable: true,
+            manufacturerData: const {},
+            serviceData: const {},
+            serviceUuids: const [],
+          ),
+          rssi: -40,
+          timeStamp: DateTime.now(),
+        );
+      }
+    } catch (_) {}
+
     try {
       await FlutterBluePlus.startScan(
         timeout: timeout,
-        androidScanMode: AndroidScanMode.balanced,
+        androidScanMode: AndroidScanMode.lowLatency,
       );
     } on MissingPluginException {
       throw Exception('PLUGIN_UNAVAILABLE');
@@ -110,10 +137,6 @@ class BlePrinterService {
       await for (final results in FlutterBluePlus.scanResults) {
         for (final r in results) {
           final id = r.device.remoteId.str;
-          if (r.advertisementData.advName.isEmpty &&
-              r.device.platformName.isEmpty) {
-            continue;
-          }
           seen[id] = r;
         }
         final sorted = seen.values.toList()

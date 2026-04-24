@@ -231,6 +231,40 @@ class _BleScanSheetState extends State<BleScanSheet>
                   ],
                 ),
               ),
+              // Helpful hint: BLE scan only sees devices that are actively
+              // advertising. If the printer is already "connected" in iPrint
+              // or iOS Settings, it won't appear here until disconnected.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF8C00).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFFFF8C00).withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.info_outline_rounded,
+                          color: Color(0xFFFF8C00), size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'ئەگەر پرینتەرەکە پێشتر بە iPrint یان لە ڕێکخستنەکانی iOS پەیوەستە، تکایە سەرەتا پەیوەندییەکەی لێ بڕێنەوە ئینجا گەڕان بکە.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.75),
+                            fontSize: 11,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(height: 12),
               Expanded(child: _buildBody(controller)),
               Padding(

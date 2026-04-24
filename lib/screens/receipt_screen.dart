@@ -59,13 +59,13 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
   /// Smart auto-print:
   ///   - Printer configured? → print instantly in place with a nice overlay
-  ///   - Otherwise → open the save-to-Photos flow (iPrint compatibility)
+  ///   - Otherwise → share PDF to iPrint (one-tap flow for iOS users)
   Future<void> _handleAutoPrint() async {
     if (!mounted) return;
     if (_hasPrinter) {
       await _printReceipt();
     } else {
-      _saveReceiptToPhotos();
+      await _shareReceiptAsPdf();
     }
   }
 
@@ -152,7 +152,40 @@ class _ReceiptScreenState extends State<ReceiptScreen>
     if (mounted) setState(() => _isPrinting = false);
   }
 
-  /// Optional fallback: iOS share sheet (for users who prefer other apps).
+  /// Primary iPrint flow: generate a PDF and share it via iOS Share Sheet.
+  /// iPrint registers as a PDF handler, so it appears as one of the apps
+  /// and opens the PDF pre-loaded ready to print — much simpler than the
+  /// Photos → import dance.
+  Future<void> _shareReceiptAsPdf() async {
+    setState(() => _isPrinting = true);
+    try {
+      final box = context.findRenderObject() as RenderBox?;
+      await _printerService.shareReceiptAsPdf(
+        widget.order,
+        sharePositionOrigin:
+            box != null ? box.localToGlobal(Offset.zero) & box.size : null,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'نەتوانرا PDF بنێردرێت: $e',
+              textDirection: TextDirection.rtl,
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    }
+    if (mounted) setState(() => _isPrinting = false);
+  }
+
+  /// Optional fallback: share the receipt as PNG image (for users who
+  /// need it as an image or want to save it for records).
   Future<void> _shareReceiptViaSystemSheet() async {
     setState(() => _isPrinting = true);
     try {
@@ -820,14 +853,31 @@ class _ReceiptScreenState extends State<ReceiptScreen>
           // Connected printer chip
           _buildConnectedPrinterChip(),
           const SizedBox(height: 10),
-          TextButton.icon(
-            onPressed: _isPrinting ? null : _saveReceiptToPhotos,
-            icon: const Icon(Icons.photo_library_rounded,
-                color: Colors.white38, size: 16),
-            label: const Text(
-              'پاشەکەوت وەک وێنە',
-              style: TextStyle(color: Colors.white54, fontSize: 12),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: _isPrinting ? null : _shareReceiptAsPdf,
+                  icon: const Icon(Icons.picture_as_pdf_rounded,
+                      color: Colors.white38, size: 16),
+                  label: const Text(
+                    'ناردنی PDF',
+                    style: TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: _isPrinting ? null : _saveReceiptToPhotos,
+                  icon: const Icon(Icons.photo_library_rounded,
+                      color: Colors.white38, size: 16),
+                  label: const Text(
+                    'وەک وێنە',
+                    style: TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       );
@@ -932,24 +982,52 @@ class _ReceiptScreenState extends State<ReceiptScreen>
           ],
         ),
         const SizedBox(height: 14),
-        // Photos fallback for iPrint users
+        // Primary fallback for iPrint users: PDF share (one tap)
         SizedBox(
           width: double.infinity,
-          height: 50,
-          child: OutlinedButton.icon(
-            onPressed: _isPrinting ? null : _saveReceiptToPhotos,
-            icon: const Icon(Icons.photo_library_rounded, size: 18),
+          height: 58,
+          child: ElevatedButton.icon(
+            onPressed: _isPrinting ? null : _shareReceiptAsPdf,
+            icon: _isPrinting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.picture_as_pdf_rounded, size: 22),
             label: const Text(
-              'پاشەکەوت لە وێنەکان (بۆ iPrint)',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              'ناردن بۆ iPrint (PDF)',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
             ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white70,
-              side: const BorderSide(color: Colors.white24, width: 1.2),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4CAF50),
+              foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(16),
               ),
+              elevation: 0,
             ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'لە پەنجەرەی هاوبەشکردن، iPrint هەڵبژێرە',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.4),
+            fontSize: 11,
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Secondary: Photos save (for users who need image specifically)
+        TextButton.icon(
+          onPressed: _isPrinting ? null : _saveReceiptToPhotos,
+          icon: const Icon(Icons.photo_library_rounded,
+              color: Colors.white38, size: 16),
+          label: const Text(
+            'پاشەکەوت وەک وێنە',
+            style: TextStyle(color: Colors.white54, fontSize: 12),
           ),
         ),
       ],

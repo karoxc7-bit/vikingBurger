@@ -261,6 +261,32 @@ class PrinterService {
     );
   }
 
+  /// Opens the iOS share sheet with a **PDF** receipt. This is the
+  /// recommended path for iPrint-style thermal printer apps because they
+  /// register themselves as PDF handlers — the user just taps iPrint in
+  /// the share sheet and the PDF opens pre-loaded and ready to print.
+  ///
+  /// The PDF is sized to the configured paper width and renders Kurdish
+  /// text via embedded fonts (no rasterization needed on the receiving end).
+  Future<void> shareReceiptAsPdf(Order order,
+      {Rect? sharePositionOrigin}) async {
+    final widthMm = await getPaperWidthMm();
+    final spec = _paperSpec(widthMm);
+    final pdfBytes = await _generateReceiptPdf(order, spec: spec);
+
+    final tempDir = await getTemporaryDirectory();
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final name = 'Viking_Burger_Receipt_$ts.pdf';
+    final file = File('${tempDir.path}/$name');
+    await file.writeAsBytes(pdfBytes);
+
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'application/pdf', name: name)],
+      subject: 'Viking Burger - Receipt',
+      sharePositionOrigin: sharePositionOrigin,
+    );
+  }
+
   /// Saves the receipt PNG into the "Viking Burger" album in Photos so
   /// the cashier can pick it from iPrint's "Document Print" flow.
   Future<String> saveReceiptToGallery(Order order) async {
