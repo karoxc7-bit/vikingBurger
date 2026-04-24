@@ -282,13 +282,18 @@ class PrinterService {
   }
 
   /// Print customer receipt (auto-detects printer type)
+  // 58mm thermal paper: 164 points wide, tall enough for any receipt
+  static const _thermalPageFormat = PdfPageFormat(164.0, 1200.0, marginAll: 4.0);
+
   Future<void> printCustomerWithDialog(Order order) async {
     final printer = await getCustomerPrinter();
     if (printer != null && printer.type == PrinterConnectionType.bluetooth) {
       await _printOrder(printer, order, isKitchen: false);
     } else {
+      final pdf = await _generateCustomerReceipt(order);
       await Printing.layoutPdf(
-        onLayout: (PdfPageFormat format) => _generateCustomerReceipt(order, pageFormat: format),
+        onLayout: (_) async => pdf,
+        format: _thermalPageFormat,
       );
     }
   }
@@ -299,8 +304,10 @@ class PrinterService {
     if (printer != null && printer.type == PrinterConnectionType.bluetooth) {
       await _printOrder(printer, order, isKitchen: true);
     } else {
+      final pdf = await _generateKitchenReceipt(order);
       await Printing.layoutPdf(
-        onLayout: (PdfPageFormat format) => _generateKitchenReceipt(order, pageFormat: format),
+        onLayout: (_) async => pdf,
+        format: _thermalPageFormat,
       );
     }
   }
@@ -317,367 +324,219 @@ class PrinterService {
     return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}  $hour:$minute';
   }
 
-  Future<Uint8List> _generateCustomerReceipt(Order order, {PdfPageFormat? pageFormat}) async {
+  Future<Uint8List> _generateCustomerReceipt(Order order) async {
     final fontData = await rootBundle.load('assets/fonts/NotoKufiArabic.ttf');
     final font = pw.Font.ttf(fontData);
     final fontBoldData = await rootBundle.load('assets/fonts/NotoKufiArabic-Bold.ttf');
     final fontBold = pw.Font.ttf(fontBoldData);
 
     final pdf = pw.Document();
-    final bool isStandardPaper = pageFormat != null && pageFormat.width > 200;
-    // Standard paper → real A4 with MultiPage (so content fills full A4 width correctly)
-    final PdfPageFormat usedFormat = isStandardPaper
-        ? PdfPageFormat.a4.copyWith(marginAll: 24)
-        : const PdfPageFormat(164.0, double.infinity, marginAll: 0.0);
-    final double s = isStandardPaper ? 3.2 : 1.0;
-
-    if (isStandardPaper) {
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: usedFormat,
-          theme: pw.ThemeData.withFont(base: font, bold: fontBold),
-          textDirection: pw.TextDirection.rtl,
-          build: (pw.Context context) => [
-            // Header
-            pw.Container(
-              width: double.infinity,
-              padding: pw.EdgeInsets.symmetric(vertical: 14 * s),
-              decoration: const pw.BoxDecoration(
-                border: pw.Border(
-                  bottom: pw.BorderSide(color: PdfColors.grey400, width: 0.5),
-                ),
-              ),
-              child: pw.Column(
-                children: [
-                  _pwText('Viking Burger', style: pw.TextStyle(color: PdfColors.black, fontSize: 16 * s, fontWeight: pw.FontWeight.bold)),
-                  pw.SizedBox(height: 3 * s),
-                  _pwText('ئەربیل - بەحرکە - شەقامی گشتی', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7 * s)),
-                  pw.SizedBox(height: 2 * s),
-                  _pwText('0750 348 5909', style: pw.TextStyle(color: PdfColors.grey800, fontSize: 8 * s, fontWeight: pw.FontWeight.bold)),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 8 * s),
-            if (order.isDelivery) ...[
-              pw.Container(
-                width: double.infinity,
-                padding: pw.EdgeInsets.symmetric(vertical: 4 * s),
-                decoration: pw.BoxDecoration(
-                  border: pw.Border.all(color: PdfColors.grey800, width: 1.5),
-                  borderRadius: pw.BorderRadius.all(pw.Radius.circular(4)),
-                ),
-                child: pw.Center(
-                  child: _pwText('*** دلیڤەری ***', style: pw.TextStyle(fontSize: 9 * s, fontWeight: pw.FontWeight.bold)),
-                ),
-              ),
-              pw.SizedBox(height: 8 * s),
-            ],
-            // Date & Items Count
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    _pwText('بەروار', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5 * s)),
-                    pw.SizedBox(height: 1 * s),
-                    _pwText(_formatDate(order.createdAt), style: pw.TextStyle(fontSize: 6 * s, fontWeight: pw.FontWeight.bold)),
-                  ],
-                ),
-                pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.end,
-                  children: [
-                    _pwText('ژمارەی ئایتم', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5 * s)),
-                    pw.SizedBox(height: 1 * s),
-                    _pwText('${order.items.fold<int>(0, (sum, i) => sum + i.quantity)}', style: pw.TextStyle(fontSize: 7 * s, fontWeight: pw.FontWeight.bold)),
-                  ],
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 4 * s),
-            pw.Divider(color: PdfColors.grey400, thickness: 0.5),
-            pw.SizedBox(height: 4 * s),
-            // Column headers
-            pw.Row(
-              children: [
-                pw.Expanded(flex: 5, child: _pwText('ئایتم', style: pw.TextStyle(fontSize: 7 * s, fontWeight: pw.FontWeight.bold))),
-                pw.SizedBox(width: 30 * s, child: _pwText('دانە', style: pw.TextStyle(fontSize: 7 * s, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center)),
-                pw.Expanded(flex: 4, child: _pwText('کۆی گشتی', style: pw.TextStyle(fontSize: 7 * s, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
-              ],
-            ),
-            pw.SizedBox(height: 2 * s),
-            // Items
-            ...order.items.expand((item) => [
-              pw.Padding(
-                padding: pw.EdgeInsets.symmetric(vertical: 2 * s),
-                child: pw.Row(
-                  children: [
-                    pw.Expanded(flex: 5, child: _pwText(item.name, style: pw.TextStyle(fontSize: 8 * s))),
-                    pw.SizedBox(width: 30 * s, child: _pwText('${item.quantity}', style: pw.TextStyle(fontSize: 8 * s), textAlign: pw.TextAlign.center)),
-                    pw.Expanded(flex: 4, child: _pwText('IQD ${formatPrice(item.totalPrice)}', style: pw.TextStyle(fontSize: 8 * s, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
-                  ],
-                ),
-              ),
-              if (item.note != null && item.note!.isNotEmpty)
-                pw.Padding(
-                  padding: pw.EdgeInsets.only(bottom: 2 * s, right: 4 * s),
-                  child: _pwText('  > ${item.note}', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 6 * s)),
-                ),
-            ]),
-            pw.SizedBox(height: 3 * s),
-            pw.Divider(color: PdfColors.grey400, thickness: 0.5),
-            pw.SizedBox(height: 3 * s),
-            // Totals
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                _pwText('کۆی نرخەکان', style: pw.TextStyle(fontSize: 8 * s)),
-                _pwText('IQD ${formatPrice(order.totalPrice)}', style: pw.TextStyle(fontSize: 8 * s)),
-              ],
-            ),
-            if (order.discount > 0) ...[
-              pw.SizedBox(height: 2 * s),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  _pwText('داشکاندن', style: pw.TextStyle(fontSize: 8 * s)),
-                  _pwText('IQD -${formatPrice(order.discount)}', style: pw.TextStyle(fontSize: 8 * s)),
-                ],
-              ),
-            ],
-            pw.SizedBox(height: 3 * s),
-            pw.Divider(color: PdfColors.grey600, thickness: 1),
-            pw.SizedBox(height: 5 * s),
-            // Final Price
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                _pwText('نرخی کۆتایی', style: pw.TextStyle(fontSize: 11 * s, fontWeight: pw.FontWeight.bold)),
-                _pwText('IQD ${formatPrice(order.finalPrice)}', style: pw.TextStyle(fontSize: 12 * s, fontWeight: pw.FontWeight.bold)),
-              ],
-            ),
-            pw.SizedBox(height: 14 * s),
-            // Footer
-            pw.Container(
-              width: double.infinity,
-              padding: pw.EdgeInsets.symmetric(vertical: 10 * s),
-              decoration: const pw.BoxDecoration(
-                color: PdfColors.grey200,
-              ),
-              child: pw.Column(
-                children: [
-                  _pwText('سوپاس بۆ هەڵبژاردنی ئێمە', style: pw.TextStyle(fontSize: 9 * s, fontWeight: pw.FontWeight.bold)),
-                  pw.SizedBox(height: 2 * s),
-                  _pwText('چاوەڕێی گەڕانەوەت دەکەین بۆ تامێکی تایبەت تر', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 6 * s)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    } else {
-      pdf.addPage(
-        pw.Page(
-          pageFormat: usedFormat,
-          theme: pw.ThemeData.withFont(base: font, bold: fontBold),
-          textDirection: pw.TextDirection.rtl,
-          build: (pw.Context context) {
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-              children: [
-                // Header
-                pw.Container(
-                  width: double.infinity,
-                  padding: pw.EdgeInsets.symmetric(vertical: 14 * s),
-                  decoration: const pw.BoxDecoration(
-                    border: pw.Border(
-                      bottom: pw.BorderSide(color: PdfColors.grey400, width: 0.5),
-                    ),
-                  ),
-                  child: pw.Column(
-                    children: [
-                      _pwText('Viking Burger', style: pw.TextStyle(color: PdfColors.black, fontSize: 16 * s, fontWeight: pw.FontWeight.bold)),
-                      pw.SizedBox(height: 3 * s),
-                      _pwText('ئەربیل - بەحرکە - شەقامی گشتی', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7 * s)),
-                      pw.SizedBox(height: 2 * s),
-                      _pwText('0750 348 5909', style: pw.TextStyle(color: PdfColors.grey800, fontSize: 8 * s, fontWeight: pw.FontWeight.bold)),
-                    ],
-                  ),
-                ),
-
-                pw.Padding(
-                  padding: pw.EdgeInsets.symmetric(horizontal: 10 * s),
-                  child: pw.Column(
-                    children: [
-                      pw.SizedBox(height: 8 * s),
-                      if (order.isDelivery) ...[
-                        pw.Container(
-                          width: double.infinity,
-                          padding: pw.EdgeInsets.symmetric(vertical: 4 * s),
-                          decoration: pw.BoxDecoration(
-                            border: pw.Border.all(color: PdfColors.grey800, width: 1.5),
-                            borderRadius: pw.BorderRadius.all(pw.Radius.circular(4)),
-                          ),
-                          child: pw.Center(
-                            child: _pwText('*** دلیڤەری ***', style: pw.TextStyle(fontSize: 9 * s, fontWeight: pw.FontWeight.bold)),
-                          ),
-                        ),
-                        pw.SizedBox(height: 8 * s),
-                      ],
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.start,
-                            children: [
-                              _pwText('بەروار', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5 * s)),
-                              pw.SizedBox(height: 1 * s),
-                              _pwText(_formatDate(order.createdAt), style: pw.TextStyle(fontSize: 6 * s, fontWeight: pw.FontWeight.bold)),
-                            ],
-                          ),
-                          pw.Column(
-                            crossAxisAlignment: pw.CrossAxisAlignment.end,
-                            children: [
-                              _pwText('ژمارەی ئایتم', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5 * s)),
-                              pw.SizedBox(height: 1 * s),
-                              _pwText('${order.items.fold<int>(0, (sum, i) => sum + i.quantity)}', style: pw.TextStyle(fontSize: 7 * s, fontWeight: pw.FontWeight.bold)),
-                            ],
-                          ),
-                        ],
-                      ),
-                      pw.SizedBox(height: 4 * s),
-                      _pwText('- ' * 20, style: pw.TextStyle(fontSize: 6 * s, color: PdfColors.grey600)),
-                      pw.SizedBox(height: 4 * s),
-                      pw.Row(
-                        children: [
-                          pw.Expanded(flex: 4, child: _pwText('ئایتم', style: pw.TextStyle(fontSize: 6 * s, fontWeight: pw.FontWeight.bold))),
-                          pw.SizedBox(width: 25 * s, child: _pwText('دانە', style: pw.TextStyle(fontSize: 6 * s, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center)),
-                          pw.Expanded(flex: 4, child: _pwText('کۆی گشتی', style: pw.TextStyle(fontSize: 6 * s, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
-                        ],
-                      ),
-                      pw.SizedBox(height: 2 * s),
-                      ...order.items.expand((item) => [
-                        pw.Padding(
-                          padding: pw.EdgeInsets.symmetric(vertical: 2 * s),
-                          child: pw.Row(
-                            children: [
-                              pw.Expanded(flex: 4, child: _pwText(item.name, style: pw.TextStyle(fontSize: 7 * s))),
-                              pw.SizedBox(width: 25 * s, child: _pwText('${item.quantity}', style: pw.TextStyle(fontSize: 7 * s), textAlign: pw.TextAlign.center)),
-                              pw.Expanded(flex: 4, child: _pwText('IQD ${formatPrice(item.totalPrice)}', style: pw.TextStyle(fontSize: 7 * s, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
-                            ],
-                          ),
-                        ),
-                        if (item.note != null && item.note!.isNotEmpty)
-                          pw.Padding(
-                            padding: pw.EdgeInsets.only(bottom: 2 * s, right: 4 * s),
-                            child: _pwText('  > ${item.note}', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5 * s)),
-                          ),
-                      ]),
-                      pw.SizedBox(height: 3 * s),
-                      _pwText('- ' * 20, style: pw.TextStyle(fontSize: 6 * s, color: PdfColors.grey600)),
-                      pw.SizedBox(height: 3 * s),
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          _pwText('کۆی نرخەکان', style: pw.TextStyle(fontSize: 7 * s)),
-                          _pwText('IQD ${formatPrice(order.totalPrice)}', style: pw.TextStyle(fontSize: 7 * s)),
-                        ],
-                      ),
-                      if (order.discount > 0) ...[
-                        pw.SizedBox(height: 2 * s),
-                        pw.Row(
-                          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                          children: [
-                            _pwText('داشکاندن', style: pw.TextStyle(fontSize: 7 * s)),
-                            _pwText('IQD -${formatPrice(order.discount)}', style: pw.TextStyle(fontSize: 7 * s)),
-                          ],
-                        ),
-                      ],
-                      pw.SizedBox(height: 3 * s),
-                      _pwText('- ' * 20, style: pw.TextStyle(fontSize: 6 * s, color: PdfColors.grey600)),
-                      pw.SizedBox(height: 5 * s),
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          _pwText('نرخی کۆتایی', style: pw.TextStyle(fontSize: 10 * s, fontWeight: pw.FontWeight.bold)),
-                          _pwText('IQD ${formatPrice(order.finalPrice)}', style: pw.TextStyle(fontSize: 11 * s, fontWeight: pw.FontWeight.bold)),
-                        ],
-                      ),
-                      pw.SizedBox(height: 10 * s),
-                    ],
-                  ),
-                ),
-
-                // Footer
-                pw.Container(
-                  width: double.infinity,
-                  color: const PdfColor.fromInt(0xFFF0F0F0),
-                  padding: pw.EdgeInsets.symmetric(vertical: 10 * s),
-                  child: pw.Column(
-                    children: [
-                      _pwText('سوپاس بۆ هەڵبژاردنی ئێمە', style: pw.TextStyle(fontSize: 8 * s, fontWeight: pw.FontWeight.bold)),
-                      pw.SizedBox(height: 2 * s),
-                      _pwText('چاوەڕێی گەڕانەوەت دەکەین بۆ تامێکی تایبەت تر', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 5 * s)),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      );
-    }
-
-    return pdf.save();
-  }
-
-  Future<Uint8List> _generateKitchenReceipt(Order order, {PdfPageFormat? pageFormat}) async {
-    final fontData = await rootBundle.load('assets/fonts/NotoKufiArabic.ttf');
-    final font = pw.Font.ttf(fontData);
-    final fontBoldData = await rootBundle.load('assets/fonts/NotoKufiArabic-Bold.ttf');
-    final fontBold = pw.Font.ttf(fontBoldData);
-
-    final pdf = pw.Document();
-    final bool isStandardPaper = pageFormat != null && pageFormat.width > 200;
-    final PdfPageFormat usedFormat = isStandardPaper
-        ? PdfPageFormat(PdfPageFormat.a5.width, double.infinity, marginAll: 6.0)
-        : const PdfPageFormat(164.0, double.infinity, marginAll: 6.0);
-    final double s = isStandardPaper ? 2.5 : 1.0;
+    const pageWidth = 164.0;
+    const pageMargin = 0.0;
 
     pdf.addPage(
       pw.Page(
-        pageFormat: usedFormat,
+        pageFormat: const PdfPageFormat(pageWidth, double.infinity, marginAll: pageMargin),
         theme: pw.ThemeData.withFont(base: font, bold: fontBold),
         textDirection: pw.TextDirection.rtl,
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
-              _pwText('** مەتبەخ **', style: pw.TextStyle(fontSize: 14 * s, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 2 * s),
-              _pwText(_formatDate(order.createdAt), style: pw.TextStyle(fontSize: 8 * s)),
-              pw.SizedBox(height: 4 * s),
-              _pwText('================================', style: pw.TextStyle(fontSize: 6 * s)),
-              pw.SizedBox(height: 6 * s),
+              // Header
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.symmetric(vertical: 10),
+                child: pw.Column(
+                  children: [
+                    _pwText('Viking Burger', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(height: 3),
+                    _pwText('ئەربیل - بەحرکە - شەقامی گشتی', style: const pw.TextStyle(fontSize: 8)),
+                    pw.SizedBox(height: 2),
+                    _pwText('0750 348 5909', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                  ]
+                )
+              ),
+
+              pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 10),
+                child: pw.Column(
+                  children: [
+                    pw.SizedBox(height: 8),
+                    if (order.isDelivery) ...[
+                      pw.Container(
+                        width: double.infinity,
+                        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+                        decoration: pw.BoxDecoration(
+                          border: pw.Border.all(color: PdfColors.grey800, width: 1.5),
+                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                        ),
+                        child: pw.Center(
+                          child: _pwText('*** دلیڤەری ***', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                        ),
+                      ),
+                      pw.SizedBox(height: 8),
+                    ],
+                    // Date & Items Count
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.start,
+                          children: [
+                            _pwText('بەروار', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7)),
+                            pw.SizedBox(height: 1),
+                            _pwText(_formatDate(order.createdAt), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                          ]
+                        ),
+                        pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.end,
+                          children: [
+                            _pwText('ژمارەی ئایتم', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7)),
+                            pw.SizedBox(height: 1),
+                            _pwText('${order.items.fold<int>(0, (s, i) => s + i.quantity)}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                          ]
+                        ),
+                      ],
+                    ),
+                    pw.SizedBox(height: 4),
+                    _pwText('- '*20, style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
+                    pw.SizedBox(height: 4),
+
+                    // Column headers
+                    pw.Row(
+                      children: [
+                        pw.Expanded(flex: 4, child: _pwText('ئایتم', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
+                        pw.SizedBox(width: 28, child: _pwText('دانە', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center)),
+                        pw.Expanded(flex: 4, child: _pwText('کۆی گشتی', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 2),
+
+                    // Items
+                    ...order.items.expand((item) => [
+                          pw.Padding(
+                            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                            child: pw.Row(
+                              children: [
+                                pw.Expanded(flex: 4, child: _pwText(item.name, style: const pw.TextStyle(fontSize: 9))),
+                                pw.SizedBox(width: 28, child: _pwText('${item.quantity}', style: const pw.TextStyle(fontSize: 9), textAlign: pw.TextAlign.center)),
+                                pw.Expanded(flex: 4, child: _pwText('IQD ${formatPrice(item.totalPrice)}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
+                              ],
+                            ),
+                          ),
+                          if (item.note != null && item.note!.isNotEmpty)
+                            pw.Padding(
+                              padding: const pw.EdgeInsets.only(bottom: 2, right: 4),
+                              child: _pwText('  > ${item.note}', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7)),
+                            ),
+                        ]),
+
+                    pw.SizedBox(height: 3),
+                    _pwText('- '*20, style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
+                    pw.SizedBox(height: 3),
+
+                    // Totals
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        _pwText('کۆی نرخەکان', style: const pw.TextStyle(fontSize: 9)),
+                        _pwText('IQD ${formatPrice(order.totalPrice)}', style: const pw.TextStyle(fontSize: 9)),
+                      ],
+                    ),
+                    if (order.discount > 0) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Row(
+                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                        children: [
+                          _pwText('داشکاندن', style: const pw.TextStyle(fontSize: 9)),
+                          _pwText('IQD -${formatPrice(order.discount)}', style: const pw.TextStyle(fontSize: 9)),
+                        ],
+                      ),
+                    ],
+                    pw.SizedBox(height: 3),
+                    _pwText('- '*20, style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
+                    pw.SizedBox(height: 5),
+
+                    // Final Price
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        _pwText('نرخی کۆتایی', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                        _pwText('IQD ${formatPrice(order.finalPrice)}', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 10),
+                  ]
+                )
+              ),
+
+              // Footer
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.symmetric(vertical: 10),
+                child: pw.Column(
+                  children: [
+                    _pwText('سوپاس بۆ هەڵبژاردنی ئێمە', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    pw.SizedBox(height: 2),
+                    _pwText('چاوەڕێی گەڕانەوەت دەکەین بۆ تامێکی تایبەت تر', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7)),
+                  ]
+                )
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  Future<Uint8List> _generateKitchenReceipt(Order order) async {
+    final fontData = await rootBundle.load('assets/fonts/NotoKufiArabic.ttf');
+    final font = pw.Font.ttf(fontData);
+    final fontBoldData = await rootBundle.load('assets/fonts/NotoKufiArabic-Bold.ttf');
+    final fontBold = pw.Font.ttf(fontBoldData);
+
+    final pdf = pw.Document();
+    // 58mm thermal receipt paper
+    const pageWidth = 164.0;
+    const pageMargin = 6.0;
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: const PdfPageFormat(pageWidth, double.infinity, marginAll: pageMargin),
+        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        textDirection: pw.TextDirection.rtl,
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.center,
+            children: [
+              _pwText('** مەتبەخ **', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 2),
+              _pwText(_formatDate(order.createdAt), style: const pw.TextStyle(fontSize: 8)),
+              pw.SizedBox(height: 4),
+              _pwText('================================', style: const pw.TextStyle(fontSize: 6)),
+              pw.SizedBox(height: 6),
 
               if (order.isDelivery) ...[
                 pw.Container(
                   width: double.infinity,
-                  padding: pw.EdgeInsets.symmetric(vertical: 4 * s),
+                  padding: const pw.EdgeInsets.symmetric(vertical: 4),
                   decoration: pw.BoxDecoration(
                     border: pw.Border.all(color: PdfColors.black, width: 1.5),
                   ),
                   child: pw.Center(
-                    child: _pwText('*** دلیڤەری ***', style: pw.TextStyle(fontSize: 12 * s, fontWeight: pw.FontWeight.bold)),
+                    child: _pwText('*** دلیڤەری ***', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
                   ),
                 ),
-                pw.SizedBox(height: 6 * s),
+                pw.SizedBox(height: 6),
               ],
 
               ...order.items.expand((item) => [
                     pw.Container(
-                      margin: pw.EdgeInsets.only(bottom: 1 * s),
-                      padding: pw.EdgeInsets.symmetric(vertical: 3 * s, horizontal: 4 * s),
+                      margin: const pw.EdgeInsets.only(bottom: 1),
+                      padding: const pw.EdgeInsets.symmetric(vertical: 3, horizontal: 4),
                       decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.8)),
                       child: pw.Column(
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -686,27 +545,27 @@ class PrinterService {
                             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                             children: [
                               pw.Expanded(
-                                child: _pwText(item.name, style: pw.TextStyle(fontSize: 11 * s, fontWeight: pw.FontWeight.bold)),
+                                child: _pwText(item.name, style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
                               ),
-                              _pwText('  ${item.quantity}x', style: pw.TextStyle(fontSize: 12 * s, fontWeight: pw.FontWeight.bold)),
+                              _pwText('  ${item.quantity}x', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
                             ],
                           ),
                           if (item.note != null && item.note!.isNotEmpty)
                             pw.Padding(
-                              padding: pw.EdgeInsets.only(top: 2 * s),
-                              child: _pwText('> ${item.note}', style: pw.TextStyle(fontSize: 8 * s)),
+                              padding: const pw.EdgeInsets.only(top: 2),
+                              child: _pwText('> ${item.note}', style: pw.TextStyle(fontSize: 8)),
                             ),
                         ],
                       ),
                     ),
-                    pw.SizedBox(height: 3 * s),
+                    pw.SizedBox(height: 3),
                   ]),
 
-              pw.SizedBox(height: 4 * s),
-              _pwText('================================', style: pw.TextStyle(fontSize: 6 * s)),
-              pw.SizedBox(height: 3 * s),
-              _pwText('کۆی ئایتم: ${order.items.fold<int>(0, (sum, i) => sum + i.quantity)}', style: pw.TextStyle(fontSize: 10 * s, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 8 * s),
+              pw.SizedBox(height: 4),
+              _pwText('================================', style: const pw.TextStyle(fontSize: 6)),
+              pw.SizedBox(height: 3),
+              _pwText('کۆی ئایتم: ${order.items.fold<int>(0, (s, i) => s + i.quantity)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 8),
             ],
           );
         },

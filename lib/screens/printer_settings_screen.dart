@@ -169,15 +169,102 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen>
 
   // ===== Bluetooth printer =====
   Future<void> _addBluetoothPrinter(bool isCustomer) async {
+    // Check Bluetooth
+    final btEnabled = await _printerService.isBluetoothEnabled();
+    if (!btEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('تکایە بلوتوسەکەت چالاک بکە', textDirection: TextDirection.rtl),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+      return;
+    }
+
     if (!mounted) return;
 
-    // Show scanning dialog — scan runs while dialog is open
+    // Show loading while getting paired devices
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(color: Color(0xFFFF8C00))),
+    );
+
+    final devices = await _printerService.getBluetoothDevices();
+    if (mounted) Navigator.pop(context);
+
+    if (devices.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'هیچ ئامێرێکی بلوتوسی جووتکراو نەدۆزرایەوە.\nتکایە لە ڕێکخستنەکانی بلوتوس پرینتەرەکەت جووت بکە.',
+              textDirection: TextDirection.rtl,
+            ),
+            backgroundColor: Colors.orange.shade800,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
     final selected = await showDialog<BluetoothInfo>(
       context: context,
-      barrierDismissible: true,
-      builder: (ctx) => _BluetoothScanDialog(
-        title: isCustomer ? 'پرینتەری کڕیار هەڵبژێرە' : 'پرینتەری مەتبەخ هەڵبژێرە',
-        printerService: _printerService,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            isCustomer ? 'پرینتەری کڕیار هەڵبژێرە' : 'پرینتەری مەتبەخ هەڵبژێرە',
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: devices.length,
+              itemBuilder: (context, index) {
+                final device = devices[index];
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2A2A2A),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ListTile(
+                    leading: const Icon(Icons.bluetooth_rounded, color: Color(0xFF42A5F5)),
+                    title: Text(
+                      device.name.isNotEmpty ? device.name : 'پرینتەری نەناسراو',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                    subtitle: Text(
+                      device.macAdress,
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11),
+                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    onTap: () => Navigator.pop(ctx, device),
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('پاشگەزبوونەوە', style: TextStyle(color: Colors.white54)),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -197,7 +284,7 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen>
               const CircularProgressIndicator(color: Color(0xFFFF8C00)),
               const SizedBox(width: 16),
               Text(
-                'پەیوەندی دەکرێت...',
+                'تاقیکردنەوەی پەیوەندی...',
                 style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
               ),
             ],
@@ -788,237 +875,6 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen>
                 elevation: 0,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Bluetooth Scan Dialog ───────────────────────────────────────────────────
-
-class _BluetoothScanDialog extends StatefulWidget {
-  final String title;
-  final PrinterService printerService;
-
-  const _BluetoothScanDialog({
-    required this.title,
-    required this.printerService,
-  });
-
-  @override
-  State<_BluetoothScanDialog> createState() => _BluetoothScanDialogState();
-}
-
-class _BluetoothScanDialogState extends State<_BluetoothScanDialog>
-    with SingleTickerProviderStateMixin {
-  final List<BluetoothInfo> _found = [];
-  bool _scanning = true;
-  String _statusMsg = 'بەدوادا دەگەڕێت...';
-  late AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-    _scan();
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  Future<void> _scan() async {
-    // Check BT enabled
-    final enabled = await widget.printerService.isBluetoothEnabled();
-    if (!enabled) {
-      if (mounted) {
-        setState(() {
-          _scanning = false;
-          _statusMsg = 'بلوتوسەکەت چالاک نییە. تکایە لە ڕێکخستنەکانی مۆبایل چالاکی بکە.';
-        });
-      }
-      return;
-    }
-
-    // First scan pass
-    final devices = await widget.printerService.getBluetoothDevices();
-    if (mounted) {
-      setState(() {
-        for (final d in devices) {
-          if (!_found.any((f) => f.macAdress == d.macAdress)) {
-            _found.add(d);
-          }
-        }
-      });
-    }
-
-    // Wait 2 more seconds and scan again (iOS BLE needs time)
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-
-    final devices2 = await widget.printerService.getBluetoothDevices();
-    if (mounted) {
-      setState(() {
-        for (final d in devices2) {
-          if (!_found.any((f) => f.macAdress == d.macAdress)) {
-            _found.add(d);
-          }
-        }
-        _scanning = false;
-        _statusMsg = _found.isEmpty
-            ? 'هیچ پرینتەرێک نەدۆزرایەوە.\nدڵنیا بە پرینتەرەکەت چالاکە و نزیکە.'
-            : '${_found.length} ئامێر دۆزرایەوە';
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            if (_scanning)
-              AnimatedBuilder(
-                animation: _pulse,
-                builder: (_, __) => Container(
-                  width: 10,
-                  height: 10,
-                  margin: const EdgeInsets.only(left: 8),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color.lerp(
-                        const Color(0xFF42A5F5), Colors.transparent, _pulse.value),
-                  ),
-                ),
-              )
-            else
-              const Icon(Icons.bluetooth_rounded,
-                  color: Color(0xFF42A5F5), size: 18),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                widget.title,
-                style: const TextStyle(color: Colors.white, fontSize: 16),
-              ),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Status row
-              Row(
-                children: [
-                  if (_scanning)
-                    const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                          color: Color(0xFFFF8C00), strokeWidth: 2),
-                    ),
-                  if (_scanning) const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _statusMsg,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.6),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                  if (!_scanning && _found.isEmpty)
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _scanning = true;
-                          _statusMsg = 'بەدوادا دەگەڕێت...';
-                        });
-                        _scan();
-                      },
-                      icon: const Icon(Icons.refresh_rounded,
-                          size: 16, color: Color(0xFFFF8C00)),
-                      label: const Text('دووبارە',
-                          style: TextStyle(
-                              color: Color(0xFFFF8C00), fontSize: 12)),
-                    ),
-                ],
-              ),
-              if (_found.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 280),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: _found.length,
-                    itemBuilder: (_, i) {
-                      final d = _found[i];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2A2A2A),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                              color: const Color(0xFF42A5F5).withValues(alpha: 0.2)),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 4),
-                          leading: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF42A5F5).withValues(alpha: 0.15),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.print_rounded,
-                                color: Color(0xFF42A5F5), size: 20),
-                          ),
-                          title: Text(
-                            d.name.isNotEmpty ? d.name : 'پرینتەری نەناسراو',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text(
-                            d.macAdress,
-                            style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.35),
-                                fontSize: 11),
-                          ),
-                          trailing: const Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            color: Color(0xFFFF8C00),
-                            size: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          onTap: () => Navigator.pop(context, d),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('پاشگەزبوونەوە',
-                style: TextStyle(color: Colors.white54)),
           ),
         ],
       ),
