@@ -47,37 +47,16 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
   Future<void> _printBothReceipts() async {
     setState(() => _isPrinting = true);
-    final result = await _printerService.printBoth(widget.order);
-    if (mounted) {
-      setState(() => _isPrinting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result.message,
-            textDirection: TextDirection.rtl,
-          ),
-          backgroundColor:
-              result.success ? const Color(0xFF2E7D32) : Colors.red.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-    }
-  }
-
-  Future<void> _printCustomerOnly() async {
-    setState(() => _isPrinting = true);
     try {
       await _printerService.printCustomerWithDialog(widget.order);
     } catch (_) {}
     if (mounted) setState(() => _isPrinting = false);
   }
 
-  Future<void> _printKitchenOnly() async {
+  Future<void> _printCustomerOnly() async {
     setState(() => _isPrinting = true);
     try {
-      await _printerService.printKitchenWithDialog(widget.order);
+      await _printerService.printCustomerWithDialog(widget.order);
     } catch (_) {}
     if (mounted) setState(() => _isPrinting = false);
   }
@@ -113,15 +92,11 @@ class _ReceiptScreenState extends State<ReceiptScreen>
             onPressed: () => Navigator.pop(context),
           ),
         ),
-        body: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
+        body: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 16),
               child: Column(
                 children: [
-              // Receipt card - Black & White design for thermal printer preview
+              // Receipt card
               Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
@@ -137,14 +112,17 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                 ),
                 child: Column(
                   children: [
-                    // Header - Black & White
+                    // Header - Clean white design
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      padding: const EdgeInsets.symmetric(vertical: 22),
                       decoration: const BoxDecoration(
-                        color: Color(0xFF3A3A3A),
+                        color: Colors.white,
                         borderRadius: BorderRadius.vertical(
                           top: Radius.circular(4),
+                        ),
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFDDDDDD), width: 1),
                         ),
                       ),
                       child: const Column(
@@ -152,8 +130,8 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                           Text(
                             'Viking Burger',
                             style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
+                              color: Color(0xFF1A1A1A),
+                              fontSize: 27,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 1,
                             ),
@@ -162,19 +140,20 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                           Text(
                             'ئەربیل - بەحرکە - شەقامی گشتی',
                             style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 11,
+                              color: Color(0xFF666666),
+                              fontSize: 13,
                             ),
                           ),
-                          SizedBox(height: 2),
+                          SizedBox(height: 4),
                           Directionality(
                             textDirection: TextDirection.ltr,
                             child: Text(
                               '0750 348 5909',
                               style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
+                                color: Color(0xFF333333),
+                                fontSize: 14,
                                 letterSpacing: 1.5,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),
@@ -185,7 +164,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                     if (order.isDelivery)
                       Container(
                         width: double.infinity,
-                        margin: const EdgeInsets.only(top: 14, left: 20, right: 20),
+                        margin: const EdgeInsets.only(top: 14, left: 10, right: 10),
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         decoration: BoxDecoration(
                           border: Border.all(color: const Color(0xFF666666), width: 1),
@@ -205,7 +184,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
                     // Date & order info
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+                      padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -260,7 +239,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
                     // Items header
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
                       child: Row(
                         children: const [
                           Expanded(
@@ -304,7 +283,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
                     // Items with notes
                     ...order.items.map((item) => Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                          padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -380,7 +359,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
                     // Totals
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -405,7 +384,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                     // Discount (if any)
                     if (order.discount > 0)
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -432,7 +411,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
 
                     // Final price
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                      padding: const EdgeInsets.fromLTRB(10, 12, 10, 16),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -514,7 +493,7 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                               )
                             : const Icon(Icons.print_rounded, size: 22),
                         label: Text(
-                          _isPrinting ? 'پرینت دەکرێت...' : 'پرینت بۆ هەردوو پرینتەر',
+                          _isPrinting ? 'پرینت دەکرێت...' : 'پرینتی وەصڵ',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -532,50 +511,24 @@ class _ReceiptScreenState extends State<ReceiptScreen>
                     ),
                     const SizedBox(height: 12),
                     // Individual print buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SizedBox(
-                            height: 46,
-                            child: OutlinedButton.icon(
-                              onPressed: _isPrinting ? null : _printCustomerOnly,
-                              icon: const Icon(Icons.receipt_long_rounded, size: 18),
-                              label: const Text(
-                                'وەصڵی کڕیار',
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white70,
-                                side: const BorderSide(color: Colors.white30, width: 1.5),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                            ),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 46,
+                      child: OutlinedButton.icon(
+                        onPressed: _isPrinting ? null : _printCustomerOnly,
+                        icon: const Icon(Icons.receipt_long_rounded, size: 18),
+                        label: const Text(
+                          'وەصڵی کڕیار',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          side: const BorderSide(color: Colors.white30, width: 1.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: SizedBox(
-                            height: 46,
-                            child: OutlinedButton.icon(
-                              onPressed: _isPrinting ? null : _printKitchenOnly,
-                              icon: const Icon(Icons.restaurant_rounded, size: 18),
-                              label: const Text(
-                                'وەصڵی مەتبەخ',
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white70,
-                                side: const BorderSide(color: Colors.white30, width: 1.5),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
@@ -584,15 +537,13 @@ class _ReceiptScreenState extends State<ReceiptScreen>
             ],
           ),
         ),
-          ),
         ),
-      ),
     );
   }
 
   Widget _buildDashedLine() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Row(
         children: List.generate(
           40,
