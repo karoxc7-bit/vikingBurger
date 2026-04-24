@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import '../models/order.dart';
@@ -14,7 +16,7 @@ enum PrinterConnectionType { system, network, bluetooth }
 
 class SavedPrinter {
   final String name;
-  final String address; // URL for system, IP:port for network
+  final String address;
   final PrinterConnectionType type;
 
   SavedPrinter({
@@ -24,24 +26,74 @@ class SavedPrinter {
   });
 }
 
+/// Paper specification used for both PDF page size and raster pixel width.
+/// The printable width (mm / points) is what gets drawn, and the target
+/// pixel width corresponds to the native thermal printer dot count at 203 DPI.
+class _PaperSpec {
+  final int paperMm;
+  final double pdfWidthPoints;
+  final int targetPixelWidth;
+
+  const _PaperSpec({
+    required this.paperMm,
+    required this.pdfWidthPoints,
+    required this.targetPixelWidth,
+  });
+
+  double get dpi => targetPixelWidth * 72 / pdfWidthPoints;
+}
+
 class PrinterService {
   static final PrinterService _instance = PrinterService._internal();
   factory PrinterService() => _instance;
   PrinterService._internal();
 
-  // Keys for SharedPreferences
   static const _customerNameKey = 'customer_printer_name';
   static const _customerAddressKey = 'customer_printer_address';
   static const _customerTypeKey = 'customer_printer_type';
   static const _kitchenNameKey = 'kitchen_printer_name';
   static const _kitchenAddressKey = 'kitchen_printer_address';
   static const _kitchenTypeKey = 'kitchen_printer_type';
+  static const _paperWidthKey = 'paper_width_mm';
+
+  static const int defaultPaperWidthMm = 80;
 
   SharedPreferences? _prefs;
 
   Future<SharedPreferences> get _sharedPrefs async {
     _prefs ??= await SharedPreferences.getInstance();
     return _prefs!;
+  }
+
+  // ===== Paper width (58mm / 80mm) =====
+
+  Future<int> getPaperWidthMm() async {
+    final prefs = await _sharedPrefs;
+    return prefs.getInt(_paperWidthKey) ?? defaultPaperWidthMm;
+  }
+
+  Future<void> setPaperWidthMm(int widthMm) async {
+    final prefs = await _sharedPrefs;
+    await prefs.setInt(_paperWidthKey, widthMm);
+  }
+
+  /// Returns the paper spec (PDF width + target pixel width at 203 DPI)
+  /// matching the thermal printer's native printable area.
+  /// - 58mm printer: 384 dots printable (~48mm)
+  /// - 80mm printer: 576 dots printable (~72mm)
+  _PaperSpec _paperSpec(int widthMm) {
+    if (widthMm <= 58) {
+      return const _PaperSpec(
+        paperMm: 58,
+        pdfWidthPoints: 136.0,
+        targetPixelWidth: 384,
+      );
+    }
+    return const _PaperSpec(
+      paperMm: 80,
+      pdfWidthPoints: 204.0,
+      targetPixelWidth: 576,
+    );
   }
 
   // ===== Save/Load Printer Config =====
@@ -108,7 +160,7 @@ class PrinterService {
     await prefs.remove(_kitchenTypeKey);
   }
 
-  // ===== System Printers (Windows/Desktop) =====
+  // ===== System Printers =====
 
   Future<List<Printer>> getSystemPrinters() async {
     try {
@@ -183,12 +235,13 @@ class PrinterService {
       if (!connected) throw Exception('نەتوانرا بەستنەوە بە پرینتەری بلوتوس');
       await Future.delayed(const Duration(milliseconds: 500));
     }
-    final result = await PrintBluetoothThermal.writeBytes(Uint8List.fromList(escBytes));
+    final result =
+        await PrintBluetoothThermal.writeBytes(Uint8List.fromList(escBytes));
     if (!result) throw Exception('نەتوانرا پرینت بکرێت');
     await PrintBluetoothThermal.disconnect;
   }
 
-  // ===== Print Functions =====
+  // ===== High-level print =====
 
   Future<PrintResult> printBoth(Order order) async {
     final customerPrinter = await getCustomerPrinter();
@@ -197,14 +250,14 @@ class PrinterService {
     if (customerPrinter == null && kitchenPrinter == null) {
       return PrintResult(
         success: false,
-        message: 'هیچ پرینتەرێک دیاری نەکراوە. تکایە لە ڕێکخستنەکان پرینتەر دیاری بکە.',
+        message:
+            'هیچ پرینتەرێک دیاری نەکراوە. تکایە لە ڕێکخستنەکان پرینتەر دیاری بکە.',
       );
     }
 
     final errors = <String>[];
     int printed = 0;
 
-    // Print customer receipt
     if (customerPrinter != null) {
       try {
         await _printOrder(customerPrinter, order, isKitchen: false);
@@ -214,7 +267,6 @@ class PrinterService {
       }
     }
 
-    // Print kitchen receipt
     if (kitchenPrinter != null) {
       try {
         await _printOrder(kitchenPrinter, order, isKitchen: true);
@@ -230,14 +282,17 @@ class PrinterService {
     } else if (printed > 0) {
       return PrintResult(
           success: true,
-          message:
-              '$printed پرینت سەرکەوتوو. ${errors.join(" | ")}');
+          message: '$printed پرینت سەرکەوتوو. ${errors.join(" | ")}');
     } else {
       return PrintResult(success: false, message: errors.join(' | '));
     }
   }
 
-  Future<void> _printOrder(SavedPrinter saved, Order order, {required bool isKitchen}) async {
+  Future<void> _printOrder(SavedPrinter saved, Order order,
+      {required bool isKitchen}) async {
+    final widthMm = await getPaperWidthMm();
+    final spec = _paperSpec(widthMm);
+
     if (saved.type == PrinterConnectionType.bluetooth) {
       final escBytes = isKitchen
           ? _generateKitchenReceiptESC(order)
@@ -245,8 +300,8 @@ class PrinterService {
       await _printToBluetooth(saved.address, escBytes);
     } else {
       final pdfBytes = isKitchen
-          ? await _generateKitchenReceipt(order)
-          : await _generateCustomerReceipt(order);
+          ? await _generateKitchenReceipt(order, spec: spec)
+          : await _generateCustomerReceipt(order, spec: spec);
       if (saved.type == PrinterConnectionType.network) {
         await _printToNetwork(saved.address, pdfBytes);
       } else {
@@ -266,7 +321,6 @@ class PrinterService {
   }
 
   Future<void> _printToNetwork(String address, Uint8List pdfBytes) async {
-    // address format: "ip:port"
     final parts = address.split(':');
     final ip = parts[0];
     final port = parts.length > 1 ? int.tryParse(parts[1]) ?? 9100 : 9100;
@@ -281,41 +335,113 @@ class PrinterService {
     }
   }
 
-  /// Print customer receipt (auto-detects printer type)
-  // 58mm thermal paper: 164 points wide, tall enough for any receipt
-  static const _thermalPageFormat = PdfPageFormat(164.0, 1200.0, marginAll: 4.0);
-
   Future<void> printCustomerWithDialog(Order order) async {
+    final widthMm = await getPaperWidthMm();
+    final spec = _paperSpec(widthMm);
     final printer = await getCustomerPrinter();
     if (printer != null && printer.type == PrinterConnectionType.bluetooth) {
       await _printOrder(printer, order, isKitchen: false);
     } else {
-      final pdf = await _generateCustomerReceipt(order);
+      final pdf = await _generateCustomerReceipt(order, spec: spec);
       await Printing.layoutPdf(
         onLayout: (_) async => pdf,
-        format: _thermalPageFormat,
+        format: PdfPageFormat(spec.pdfWidthPoints, double.infinity,
+            marginAll: 0),
       );
     }
   }
 
-  /// Print kitchen receipt (auto-detects printer type)
   Future<void> printKitchenWithDialog(Order order) async {
+    final widthMm = await getPaperWidthMm();
+    final spec = _paperSpec(widthMm);
     final printer = await getKitchenPrinter();
     if (printer != null && printer.type == PrinterConnectionType.bluetooth) {
       await _printOrder(printer, order, isKitchen: true);
     } else {
-      final pdf = await _generateKitchenReceipt(order);
+      final pdf = await _generateKitchenReceipt(order, spec: spec);
       await Printing.layoutPdf(
         onLayout: (_) async => pdf,
-        format: _thermalPageFormat,
+        format: PdfPageFormat(spec.pdfWidthPoints, double.infinity,
+            marginAll: 0),
       );
     }
   }
 
+  // ===== Share receipt as image (for iPrint / thermal printer apps) =====
+
+  /// Generates the receipt as a PNG image sized exactly to the thermal
+  /// printer's native dot width (384px for 58mm, 576px for 80mm).
+  /// This guarantees 1:1 printing with no scaling inside iPrint.
+  Future<Uint8List> generateReceiptImage(Order order,
+      {bool isKitchen = false}) async {
+    final widthMm = await getPaperWidthMm();
+    final spec = _paperSpec(widthMm);
+
+    final pdfBytes = isKitchen
+        ? await _generateKitchenReceipt(order, spec: spec)
+        : await _generateCustomerReceipt(order, spec: spec);
+
+    final pages = await Printing.raster(pdfBytes, dpi: spec.dpi).toList();
+    if (pages.isEmpty) {
+      throw Exception('نەتوانرا وێنەی وەسڵ دروست بکرێت');
+    }
+
+    if (pages.length == 1) {
+      return await pages.first.toPng();
+    }
+
+    return await _stitchPagesVertically(pages, spec.targetPixelWidth);
+  }
+
+  /// Stitch multiple raster pages vertically into one tall PNG.
+  /// Each page has the same width (the printer's dot count).
+  Future<Uint8List> _stitchPagesVertically(
+      List<PdfRaster> pages, int width) async {
+    int totalHeight = 0;
+    for (final p in pages) {
+      totalHeight += p.height;
+    }
+
+    final combined = Uint8List(width * totalHeight * 4);
+    int offset = 0;
+    for (final p in pages) {
+      final raw = p.pixels;
+      combined.setRange(offset, offset + raw.length, raw);
+      offset += raw.length;
+    }
+    final stitchedRaster = PdfRasterBase(width, totalHeight, false, combined);
+    return await stitchedRaster.toPng();
+  }
+
+  /// Generates a receipt image and opens the native share sheet so the user
+  /// can send it to iPrint / any thermal-printer app. Result is a PNG sized
+  /// exactly to the printer's dot count for crisp 1:1 printing.
+  Future<void> shareReceiptAsImage(Order order,
+      {bool isKitchen = false, Rect? sharePositionOrigin}) async {
+    final pngBytes = await generateReceiptImage(order, isKitchen: isKitchen);
+
+    final tempDir = await getTemporaryDirectory();
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final name =
+        isKitchen ? 'kitchen_receipt_$ts.png' : 'customer_receipt_$ts.png';
+    final file = File('${tempDir.path}/$name');
+    await file.writeAsBytes(pngBytes);
+
+    await Share.shareXFiles(
+      [XFile(file.path, mimeType: 'image/png', name: name)],
+      subject: 'Viking Burger - Receipt',
+      sharePositionOrigin: sharePositionOrigin,
+    );
+  }
+
   // ===== PDF Generation =====
 
-  pw.Widget _pwText(String text, {pw.TextStyle? style, pw.TextAlign? textAlign, pw.TextDirection? textDirection}) {
-    return pw.Text(KurdishReshaper.convert(text), style: style, textAlign: textAlign, textDirection: textDirection);
+  pw.Widget _pwText(String text,
+      {pw.TextStyle? style,
+      pw.TextAlign? textAlign,
+      pw.TextDirection? textDirection}) {
+    return pw.Text(KurdishReshaper.convert(text),
+        style: style, textAlign: textAlign, textDirection: textDirection);
   }
 
   String _formatDate(DateTime date) {
@@ -324,166 +450,281 @@ class PrinterService {
     return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}  $hour:$minute';
   }
 
-  Future<Uint8List> _generateCustomerReceipt(Order order) async {
+  /// Generates a crisp, centered, professionally-spaced customer receipt
+  /// scaled proportionally to the paper size.
+  Future<Uint8List> _generateCustomerReceipt(Order order,
+      {required _PaperSpec spec}) async {
     final fontData = await rootBundle.load('assets/fonts/NotoKufiArabic.ttf');
     final font = pw.Font.ttf(fontData);
-    final fontBoldData = await rootBundle.load('assets/fonts/NotoKufiArabic-Bold.ttf');
+    final fontBoldData =
+        await rootBundle.load('assets/fonts/NotoKufiArabic-Bold.ttf');
     final fontBold = pw.Font.ttf(fontBoldData);
 
+    // Scale factor: design baseline is 58mm (136pt). Fonts grow proportionally.
+    final scale = spec.pdfWidthPoints / 136.0;
+    double fs(double base) => base * scale;
+
     final pdf = pw.Document();
-    const pageWidth = 164.0;
-    const pageMargin = 0.0;
+    final itemCount = order.items.fold<int>(0, (s, i) => s + i.quantity);
 
     pdf.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(pageWidth, double.infinity, marginAll: pageMargin),
+        pageFormat: PdfPageFormat(
+          spec.pdfWidthPoints,
+          double.infinity,
+          marginAll: 0,
+        ),
         theme: pw.ThemeData.withFont(base: font, bold: fontBold),
         textDirection: pw.TextDirection.rtl,
         build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: [
-              // Header
-              pw.Container(
-                width: double.infinity,
-                padding: const pw.EdgeInsets.symmetric(vertical: 10),
-                child: pw.Column(
-                  children: [
-                    _pwText('Viking Burger', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-                    pw.SizedBox(height: 3),
-                    _pwText('ئەربیل - بەحرکە - شەقامی گشتی', style: const pw.TextStyle(fontSize: 8)),
-                    pw.SizedBox(height: 2),
-                    _pwText('0750 348 5909', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-                  ]
-                )
-              ),
+          final contentPadding = spec.pdfWidthPoints * 0.04;
+          return pw.Padding(
+            padding: pw.EdgeInsets.symmetric(
+              horizontal: contentPadding,
+              vertical: contentPadding * 1.5,
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+              children: [
+                // ===== Header =====
+                pw.Center(
+                  child: _pwText(
+                    'Viking Burger',
+                    style: pw.TextStyle(
+                      fontSize: fs(16),
+                      fontWeight: pw.FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                pw.SizedBox(height: fs(2)),
+                pw.Center(
+                  child: _pwText(
+                    'ئەربیل - بەحرکە - شەقامی گشتی',
+                    style: pw.TextStyle(fontSize: fs(7.5)),
+                  ),
+                ),
+                pw.SizedBox(height: fs(1.5)),
+                pw.Center(
+                  child: _pwText(
+                    '0750 348 5909',
+                    style: pw.TextStyle(
+                      fontSize: fs(8.5),
+                      fontWeight: pw.FontWeight.bold,
+                      letterSpacing: 1,
+                    ),
+                    textDirection: pw.TextDirection.ltr,
+                  ),
+                ),
+                pw.SizedBox(height: fs(6)),
+                _dashedDivider(spec),
+                pw.SizedBox(height: fs(5)),
 
-              pw.Padding(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 10),
-                child: pw.Column(
-                  children: [
-                    pw.SizedBox(height: 8),
-                    if (order.isDelivery) ...[
-                      pw.Container(
-                        width: double.infinity,
-                        padding: const pw.EdgeInsets.symmetric(vertical: 4),
-                        decoration: pw.BoxDecoration(
-                          border: pw.Border.all(color: PdfColors.grey800, width: 1.5),
-                          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
-                        ),
-                        child: pw.Center(
-                          child: _pwText('*** دلیڤەری ***', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+                if (order.isDelivery) ...[
+                  pw.Container(
+                    width: double.infinity,
+                    padding: pw.EdgeInsets.symmetric(vertical: fs(3)),
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(color: PdfColors.black, width: 1),
+                    ),
+                    child: pw.Center(
+                      child: _pwText(
+                        '*** دلیڤەری ***',
+                        style: pw.TextStyle(
+                          fontSize: fs(10),
+                          fontWeight: pw.FontWeight.bold,
                         ),
                       ),
-                      pw.SizedBox(height: 8),
-                    ],
-                    // Date & Items Count
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    ),
+                  ),
+                  pw.SizedBox(height: fs(6)),
+                ],
+
+                // ===== Date / Items count =====
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
-                        pw.Column(
+                        _pwText('بەروار',
+                            style: pw.TextStyle(
+                                color: PdfColors.grey700, fontSize: fs(7))),
+                        pw.SizedBox(height: fs(1)),
+                        _pwText(_formatDate(order.createdAt),
+                            style: pw.TextStyle(
+                                fontSize: fs(8),
+                                fontWeight: pw.FontWeight.bold)),
+                      ],
+                    ),
+                    pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.end,
+                      children: [
+                        _pwText('ژمارەی ئایتم',
+                            style: pw.TextStyle(
+                                color: PdfColors.grey700, fontSize: fs(7))),
+                        pw.SizedBox(height: fs(1)),
+                        _pwText('$itemCount',
+                            style: pw.TextStyle(
+                                fontSize: fs(9),
+                                fontWeight: pw.FontWeight.bold)),
+                      ],
+                    ),
+                  ],
+                ),
+
+                pw.SizedBox(height: fs(5)),
+                _dashedDivider(spec),
+                pw.SizedBox(height: fs(4)),
+
+                // ===== Column headers =====
+                pw.Row(
+                  children: [
+                    pw.Expanded(
+                      flex: 5,
+                      child: _pwText('ئایتم',
+                          style: pw.TextStyle(
+                              fontSize: fs(8),
+                              fontWeight: pw.FontWeight.bold)),
+                    ),
+                    pw.SizedBox(
+                      width: fs(20),
+                      child: _pwText('دانە',
+                          style: pw.TextStyle(
+                              fontSize: fs(8),
+                              fontWeight: pw.FontWeight.bold),
+                          textAlign: pw.TextAlign.center),
+                    ),
+                    pw.Expanded(
+                      flex: 4,
+                      child: _pwText('کۆی گشتی',
+                          style: pw.TextStyle(
+                              fontSize: fs(8),
+                              fontWeight: pw.FontWeight.bold),
+                          textAlign: pw.TextAlign.left),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: fs(2)),
+                _dashedDivider(spec),
+                pw.SizedBox(height: fs(3)),
+
+                // ===== Items =====
+                ...order.items.expand((item) => [
+                      pw.Padding(
+                        padding: pw.EdgeInsets.symmetric(vertical: fs(1.5)),
+                        child: pw.Row(
                           crossAxisAlignment: pw.CrossAxisAlignment.start,
                           children: [
-                            _pwText('بەروار', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7)),
-                            pw.SizedBox(height: 1),
-                            _pwText(_formatDate(order.createdAt), style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
-                          ]
+                            pw.Expanded(
+                              flex: 5,
+                              child: _pwText(item.name,
+                                  style: pw.TextStyle(fontSize: fs(9))),
+                            ),
+                            pw.SizedBox(
+                              width: fs(20),
+                              child: _pwText('${item.quantity}',
+                                  style: pw.TextStyle(
+                                      fontSize: fs(9),
+                                      fontWeight: pw.FontWeight.bold),
+                                  textAlign: pw.TextAlign.center),
+                            ),
+                            pw.Expanded(
+                              flex: 4,
+                              child: _pwText(
+                                  formatPrice(item.totalPrice),
+                                  style: pw.TextStyle(
+                                      fontSize: fs(9),
+                                      fontWeight: pw.FontWeight.bold),
+                                  textAlign: pw.TextAlign.left),
+                            ),
+                          ],
                         ),
-                        pw.Column(
-                          crossAxisAlignment: pw.CrossAxisAlignment.end,
-                          children: [
-                            _pwText('ژمارەی ئایتم', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7)),
-                            pw.SizedBox(height: 1),
-                            _pwText('${order.items.fold<int>(0, (s, i) => s + i.quantity)}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
-                          ]
-                        ),
-                      ],
-                    ),
-                    pw.SizedBox(height: 4),
-                    _pwText('- '*20, style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
-                    pw.SizedBox(height: 4),
-
-                    // Column headers
-                    pw.Row(
-                      children: [
-                        pw.Expanded(flex: 4, child: _pwText('ئایتم', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold))),
-                        pw.SizedBox(width: 28, child: _pwText('دانە', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center)),
-                        pw.Expanded(flex: 4, child: _pwText('کۆی گشتی', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
-                      ],
-                    ),
-                    pw.SizedBox(height: 2),
-
-                    // Items
-                    ...order.items.expand((item) => [
-                          pw.Padding(
-                            padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                            child: pw.Row(
-                              children: [
-                                pw.Expanded(flex: 4, child: _pwText(item.name, style: const pw.TextStyle(fontSize: 9))),
-                                pw.SizedBox(width: 28, child: _pwText('${item.quantity}', style: const pw.TextStyle(fontSize: 9), textAlign: pw.TextAlign.center)),
-                                pw.Expanded(flex: 4, child: _pwText('IQD ${formatPrice(item.totalPrice)}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.left)),
-                              ],
+                      ),
+                      if (item.note != null && item.note!.isNotEmpty)
+                        pw.Padding(
+                          padding: pw.EdgeInsets.only(
+                              bottom: fs(2), right: fs(4), left: fs(4)),
+                          child: _pwText(
+                            '› ${item.note}',
+                            style: pw.TextStyle(
+                              color: PdfColors.grey700,
+                              fontSize: fs(7.5),
+                              fontStyle: pw.FontStyle.italic,
                             ),
                           ),
-                          if (item.note != null && item.note!.isNotEmpty)
-                            pw.Padding(
-                              padding: const pw.EdgeInsets.only(bottom: 2, right: 4),
-                              child: _pwText('  > ${item.note}', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7)),
-                            ),
-                        ]),
+                        ),
+                    ]),
 
-                    pw.SizedBox(height: 3),
-                    _pwText('- '*20, style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
-                    pw.SizedBox(height: 3),
+                pw.SizedBox(height: fs(3)),
+                _dashedDivider(spec),
+                pw.SizedBox(height: fs(4)),
 
-                    // Totals
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        _pwText('کۆی نرخەکان', style: const pw.TextStyle(fontSize: 9)),
-                        _pwText('IQD ${formatPrice(order.totalPrice)}', style: const pw.TextStyle(fontSize: 9)),
-                      ],
-                    ),
-                    if (order.discount > 0) ...[
-                      pw.SizedBox(height: 2),
-                      pw.Row(
-                        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                        children: [
-                          _pwText('داشکاندن', style: const pw.TextStyle(fontSize: 9)),
-                          _pwText('IQD -${formatPrice(order.discount)}', style: const pw.TextStyle(fontSize: 9)),
-                        ],
-                      ),
-                    ],
-                    pw.SizedBox(height: 3),
-                    _pwText('- '*20, style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey600)),
-                    pw.SizedBox(height: 5),
-
-                    // Final Price
-                    pw.Row(
-                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                      children: [
-                        _pwText('نرخی کۆتایی', style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
-                        _pwText('IQD ${formatPrice(order.finalPrice)}', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-                      ],
-                    ),
-                    pw.SizedBox(height: 10),
-                  ]
-                )
-              ),
-
-              // Footer
-              pw.Container(
-                width: double.infinity,
-                padding: const pw.EdgeInsets.symmetric(vertical: 10),
-                child: pw.Column(
+                // ===== Totals =====
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                   children: [
-                    _pwText('سوپاس بۆ هەڵبژاردنی ئێمە', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                    pw.SizedBox(height: 2),
-                    _pwText('چاوەڕێی گەڕانەوەت دەکەین بۆ تامێکی تایبەت تر', style: pw.TextStyle(color: PdfColors.grey700, fontSize: 7)),
-                  ]
-                )
-              ),
-            ],
+                    _pwText('کۆی نرخەکان',
+                        style: pw.TextStyle(fontSize: fs(9))),
+                    _pwText('IQD ${formatPrice(order.totalPrice)}',
+                        style: pw.TextStyle(fontSize: fs(9))),
+                  ],
+                ),
+                if (order.discount > 0) ...[
+                  pw.SizedBox(height: fs(2)),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      _pwText('داشکاندن',
+                          style: pw.TextStyle(fontSize: fs(9))),
+                      _pwText('IQD -${formatPrice(order.discount)}',
+                          style: pw.TextStyle(fontSize: fs(9))),
+                    ],
+                  ),
+                ],
+
+                pw.SizedBox(height: fs(4)),
+                pw.Container(height: 1.2, color: PdfColors.black),
+                pw.SizedBox(height: fs(5)),
+
+                // ===== Final =====
+                pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    _pwText('نرخی کۆتایی',
+                        style: pw.TextStyle(
+                            fontSize: fs(12), fontWeight: pw.FontWeight.bold)),
+                    _pwText('IQD ${formatPrice(order.finalPrice)}',
+                        style: pw.TextStyle(
+                            fontSize: fs(13),
+                            fontWeight: pw.FontWeight.bold)),
+                  ],
+                ),
+                pw.SizedBox(height: fs(6)),
+                _dashedDivider(spec),
+                pw.SizedBox(height: fs(8)),
+
+                // ===== Footer =====
+                pw.Center(
+                  child: _pwText(
+                    'سوپاس بۆ هەڵبژاردنی ئێمە',
+                    style: pw.TextStyle(
+                        fontSize: fs(10), fontWeight: pw.FontWeight.bold),
+                  ),
+                ),
+                pw.SizedBox(height: fs(2)),
+                pw.Center(
+                  child: _pwText(
+                    'چاوەڕێی گەڕانەوەت دەکەین بۆ تامێکی تایبەت تر',
+                    style: pw.TextStyle(
+                        color: PdfColors.grey700, fontSize: fs(7)),
+                  ),
+                ),
+                pw.SizedBox(height: fs(4)),
+              ],
+            ),
           );
         },
       ),
@@ -492,102 +733,163 @@ class PrinterService {
     return pdf.save();
   }
 
-  Future<Uint8List> _generateKitchenReceipt(Order order) async {
+  Future<Uint8List> _generateKitchenReceipt(Order order,
+      {required _PaperSpec spec}) async {
     final fontData = await rootBundle.load('assets/fonts/NotoKufiArabic.ttf');
     final font = pw.Font.ttf(fontData);
-    final fontBoldData = await rootBundle.load('assets/fonts/NotoKufiArabic-Bold.ttf');
+    final fontBoldData =
+        await rootBundle.load('assets/fonts/NotoKufiArabic-Bold.ttf');
     final fontBold = pw.Font.ttf(fontBoldData);
 
+    final scale = spec.pdfWidthPoints / 136.0;
+    double fs(double base) => base * scale;
+
+    final itemCount = order.items.fold<int>(0, (s, i) => s + i.quantity);
+
     final pdf = pw.Document();
-    // 58mm thermal receipt paper
-    const pageWidth = 164.0;
-    const pageMargin = 6.0;
 
     pdf.addPage(
       pw.Page(
-        pageFormat: const PdfPageFormat(pageWidth, double.infinity, marginAll: pageMargin),
+        pageFormat: PdfPageFormat(
+          spec.pdfWidthPoints,
+          double.infinity,
+          marginAll: 0,
+        ),
         theme: pw.ThemeData.withFont(base: font, bold: fontBold),
         textDirection: pw.TextDirection.rtl,
         build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: [
-              _pwText('** مەتبەخ **', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 2),
-              _pwText(_formatDate(order.createdAt), style: const pw.TextStyle(fontSize: 8)),
-              pw.SizedBox(height: 4),
-              _pwText('================================', style: const pw.TextStyle(fontSize: 6)),
-              pw.SizedBox(height: 6),
-
-              if (order.isDelivery) ...[
-                pw.Container(
-                  width: double.infinity,
-                  padding: const pw.EdgeInsets.symmetric(vertical: 4),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.black, width: 1.5),
-                  ),
-                  child: pw.Center(
-                    child: _pwText('*** دلیڤەری ***', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
-                  ),
+          final contentPadding = spec.pdfWidthPoints * 0.04;
+          return pw.Padding(
+            padding: pw.EdgeInsets.symmetric(
+              horizontal: contentPadding,
+              vertical: contentPadding * 1.5,
+            ),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+              children: [
+                pw.Center(
+                  child: _pwText('** مەتبەخ **',
+                      style: pw.TextStyle(
+                          fontSize: fs(14), fontWeight: pw.FontWeight.bold)),
                 ),
-                pw.SizedBox(height: 6),
-              ],
+                pw.SizedBox(height: fs(3)),
+                pw.Center(
+                  child: _pwText(_formatDate(order.createdAt),
+                      style: pw.TextStyle(fontSize: fs(8))),
+                ),
+                pw.SizedBox(height: fs(5)),
+                _dashedDivider(spec),
+                pw.SizedBox(height: fs(5)),
 
-              ...order.items.expand((item) => [
-                    pw.Container(
-                      margin: const pw.EdgeInsets.only(bottom: 1),
-                      padding: const pw.EdgeInsets.symmetric(vertical: 3, horizontal: 4),
-                      decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.8)),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Row(
-                            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                            children: [
-                              pw.Expanded(
-                                child: _pwText(item.name, style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
-                              ),
-                              _pwText('  ${item.quantity}x', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)),
-                            ],
-                          ),
-                          if (item.note != null && item.note!.isNotEmpty)
-                            pw.Padding(
-                              padding: const pw.EdgeInsets.only(top: 2),
-                              child: _pwText('> ${item.note}', style: pw.TextStyle(fontSize: 8)),
-                            ),
-                        ],
-                      ),
+                if (order.isDelivery) ...[
+                  pw.Container(
+                    width: double.infinity,
+                    padding: pw.EdgeInsets.symmetric(vertical: fs(4)),
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(color: PdfColors.black, width: 1.2),
                     ),
-                    pw.SizedBox(height: 3),
-                  ]),
+                    child: pw.Center(
+                      child: _pwText('*** دلیڤەری ***',
+                          style: pw.TextStyle(
+                              fontSize: fs(12),
+                              fontWeight: pw.FontWeight.bold)),
+                    ),
+                  ),
+                  pw.SizedBox(height: fs(6)),
+                ],
 
-              pw.SizedBox(height: 4),
-              _pwText('================================', style: const pw.TextStyle(fontSize: 6)),
-              pw.SizedBox(height: 3),
-              _pwText('کۆی ئایتم: ${order.items.fold<int>(0, (s, i) => s + i.quantity)}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 8),
-            ],
+                ...order.items.expand((item) => [
+                      pw.Container(
+                        margin: pw.EdgeInsets.only(bottom: fs(3)),
+                        padding: pw.EdgeInsets.symmetric(
+                            vertical: fs(3), horizontal: fs(3)),
+                        decoration: pw.BoxDecoration(
+                          border: pw.Border.all(width: 0.8),
+                        ),
+                        child: pw.Column(
+                          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                          children: [
+                            pw.Row(
+                              mainAxisAlignment:
+                                  pw.MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                pw.Expanded(
+                                  child: _pwText(
+                                    item.name,
+                                    style: pw.TextStyle(
+                                        fontSize: fs(11),
+                                        fontWeight: pw.FontWeight.bold),
+                                  ),
+                                ),
+                                pw.SizedBox(width: fs(4)),
+                                _pwText('${item.quantity}x',
+                                    style: pw.TextStyle(
+                                        fontSize: fs(13),
+                                        fontWeight: pw.FontWeight.bold)),
+                              ],
+                            ),
+                            if (item.note != null && item.note!.isNotEmpty)
+                              pw.Padding(
+                                padding: pw.EdgeInsets.only(top: fs(2)),
+                                child: _pwText(
+                                  '› ${item.note}',
+                                  style: pw.TextStyle(fontSize: fs(9)),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ]),
+
+                pw.SizedBox(height: fs(4)),
+                _dashedDivider(spec),
+                pw.SizedBox(height: fs(4)),
+                pw.Center(
+                  child: _pwText('کۆی ئایتم: $itemCount',
+                      style: pw.TextStyle(
+                          fontSize: fs(11), fontWeight: pw.FontWeight.bold)),
+                ),
+                pw.SizedBox(height: fs(6)),
+              ],
+            ),
           );
         },
       ),
     );
 
     return pdf.save();
+  }
+
+  pw.Widget _dashedDivider(_PaperSpec spec) {
+    final segments = (spec.pdfWidthPoints / 4).floor();
+    return pw.Row(
+      children: List.generate(
+        segments,
+        (i) => pw.Expanded(
+          child: pw.Container(
+            height: 0.6,
+            margin: const pw.EdgeInsets.symmetric(horizontal: 0.6),
+            color: i.isEven ? PdfColors.grey600 : PdfColors.white,
+          ),
+        ),
+      ),
+    );
   }
 
   // ===== ESC/POS Thermal Receipt Generation (for Bluetooth) =====
 
-  static const int _lineWidth = 32; // 58mm thermal printer character width
+  int get _lineWidth => 32; // 58mm default, 80mm uses 48
 
-  List<int> _escInit() => [0x1B, 0x40]; // Initialize
+  List<int> _escInit() => [0x1B, 0x40];
   List<int> _escCenter() => [0x1B, 0x61, 0x01];
   List<int> _escLeft() => [0x1B, 0x61, 0x00];
   List<int> _escBoldOn() => [0x1B, 0x45, 0x01];
   List<int> _escBoldOff() => [0x1B, 0x45, 0x00];
-  List<int> _escDoubleSize() => [0x1B, 0x21, 0x30]; // double height + width
+  List<int> _escDoubleSize() => [0x1B, 0x21, 0x30];
   List<int> _escNormalSize() => [0x1B, 0x21, 0x00];
   List<int> _escFeed(int lines) => List.generate(lines, (_) => 0x0A);
-  List<int> _escCut() => [0x1D, 0x56, 0x01]; // Partial cut
+  List<int> _escCut() => [0x1D, 0x56, 0x01];
   List<int> _text(String s) => utf8.encode(KurdishReshaper.convert(s));
 
   String _padRight2(String left, String right) {
@@ -596,7 +898,6 @@ class PrinterService {
   }
 
   String _padColumns(String name, String qty, String total) {
-    // name: 18 chars, qty: 4 chars center, total: 10 chars right
     final n = name.length > 18 ? name.substring(0, 18) : name.padRight(18);
     final q = qty.padLeft(2).padRight(4);
     final t = total.padLeft(10);
@@ -609,7 +910,6 @@ class PrinterService {
 
     bytes.addAll(_escInit());
 
-    // Header
     bytes.addAll(_escCenter());
     bytes.addAll(_escDoubleSize());
     bytes.addAll(_escBoldOn());
@@ -633,7 +933,6 @@ class PrinterService {
       bytes.addAll(_escFeed(1));
     }
 
-    // Date & items
     bytes.addAll(_escLeft());
     bytes.addAll(_text(_padRight2('بەروار', 'ژمارەی ئایتم')));
     bytes.addAll(_escFeed(1));
@@ -643,13 +942,11 @@ class PrinterService {
     bytes.addAll(_escFeed(1));
     bytes.addAll(_text('--------------------------------\n'));
 
-    // Column headers
     bytes.addAll(_escBoldOn());
     bytes.addAll(_text(_padColumns('ئایتم', 'دانە', 'کۆی گشتی')));
     bytes.addAll(_escFeed(1));
     bytes.addAll(_escBoldOff());
 
-    // Items
     for (final item in order.items) {
       bytes.addAll(_text(_padColumns(
         item.name,
@@ -665,27 +962,26 @@ class PrinterService {
 
     bytes.addAll(_text('--------------------------------\n'));
 
-    // Subtotal
-    bytes.addAll(_text(_padRight2('کۆی نرخەکان', 'IQD ${formatPrice(order.totalPrice)}')));
+    bytes.addAll(
+        _text(_padRight2('کۆی نرخەکان', 'IQD ${formatPrice(order.totalPrice)}')));
     bytes.addAll(_escFeed(1));
 
-    // Discount
     if (order.discount > 0) {
-      bytes.addAll(_text(_padRight2('داشکاندن', 'IQD -${formatPrice(order.discount)}')));
+      bytes.addAll(_text(
+          _padRight2('داشکاندن', 'IQD -${formatPrice(order.discount)}')));
       bytes.addAll(_escFeed(1));
     }
 
     bytes.addAll(_text('--------------------------------\n'));
 
-    // Total - emphasized
     bytes.addAll(_escBoldOn());
-    bytes.addAll(_text(_padRight2('نرخی کۆتایی', 'IQD ${formatPrice(order.finalPrice)}')));
+    bytes.addAll(_text(
+        _padRight2('نرخی کۆتایی', 'IQD ${formatPrice(order.finalPrice)}')));
     bytes.addAll(_escBoldOff());
     bytes.addAll(_escFeed(1));
 
     bytes.addAll(_text('--------------------------------\n'));
 
-    // Footer
     bytes.addAll(_escCenter());
     bytes.addAll(_escFeed(1));
     bytes.addAll(_escBoldOn());
@@ -705,7 +1001,6 @@ class PrinterService {
 
     bytes.addAll(_escInit());
 
-    // Header
     bytes.addAll(_escCenter());
     bytes.addAll(_escDoubleSize());
     bytes.addAll(_escBoldOn());
@@ -729,7 +1024,6 @@ class PrinterService {
       bytes.addAll(_escFeed(1));
     }
 
-    // Items - large and bold
     bytes.addAll(_escLeft());
     for (final item in order.items) {
       bytes.addAll(_escBoldOn());

@@ -16,6 +16,7 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen>
   final _printerService = PrinterService();
   SavedPrinter? _customerPrinter;
   SavedPrinter? _kitchenPrinter;
+  int _paperWidthMm = PrinterService.defaultPaperWidthMm;
   bool _isLoading = true;
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
@@ -43,12 +44,32 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen>
   Future<void> _loadPrinters() async {
     final customer = await _printerService.getCustomerPrinter();
     final kitchen = await _printerService.getKitchenPrinter();
+    final paperWidth = await _printerService.getPaperWidthMm();
     setState(() {
       _customerPrinter = customer;
       _kitchenPrinter = kitchen;
+      _paperWidthMm = paperWidth;
       _isLoading = false;
     });
     _animController.forward();
+  }
+
+  Future<void> _setPaperWidth(int widthMm) async {
+    await _printerService.setPaperWidthMm(widthMm);
+    if (mounted) {
+      setState(() => _paperWidthMm = widthMm);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'قەبارەی کاغەز گۆڕدرا بۆ ${widthMm}mm',
+            textDirection: TextDirection.rtl,
+          ),
+          backgroundColor: const Color(0xFF2E7D32),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   // Show choice: System printer or Network printer
@@ -654,6 +675,11 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen>
                           ],
                         ),
                       ),
+                      const SizedBox(height: 20),
+
+                      // Paper width selection
+                      _buildPaperWidthCard(),
+
                       const SizedBox(height: 28),
 
                       // Customer Printer
@@ -685,6 +711,134 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen>
                   ),
                 ),
               ),
+      ),
+    );
+  }
+
+  Widget _buildPaperWidthCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF42A5F5).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.straighten_rounded,
+                    color: Color(0xFF42A5F5), size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'قەبارەی کاغەزی پرینتەر',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'وەسڵ بە شێوەی ڕێکی بۆ قەبارەی کاغەزی پرینتەرەکە ئامادە دەکرێت',
+                      style: TextStyle(color: Colors.white54, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                  child: _buildPaperOption(
+                widthMm: 58,
+                title: '58mm',
+                subtitle: 'بچووک (384 پیکسڵ)',
+              )),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: _buildPaperOption(
+                widthMm: 80,
+                title: '80mm',
+                subtitle: 'گەورە (576 پیکسڵ)',
+              )),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaperOption({
+    required int widthMm,
+    required String title,
+    required String subtitle,
+  }) {
+    final isSelected = _paperWidthMm == widthMm;
+    return GestureDetector(
+      onTap: () => _setPaperWidth(widthMm),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFFFF8C00).withValues(alpha: 0.15)
+              : const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected
+                ? const Color(0xFFFF8C00)
+                : Colors.white.withValues(alpha: 0.06),
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: isSelected ? const Color(0xFFFF8C00) : Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Spacer(),
+                if (isSelected)
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    color: Color(0xFFFF8C00),
+                    size: 18,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.5),
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
